@@ -167,13 +167,27 @@ jobs:
       id: changelog
       run: |
         # Get the previous tag
-        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
-        echo "Previous tag: $PREV_TAG"
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -n "$PREV_TAG" ]; then
+          echo "Previous tag: $PREV_TAG"
+          COMMIT_RANGE="$PREV_TAG..HEAD"
+        else
+          echo "No previous tag found, showing all commits"
+          COMMIT_RANGE="HEAD"
+        fi
         
         # Generate changelog
         echo "## Changes" > CHANGELOG.md
         echo "" >> CHANGELOG.md
-        git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> CHANGELOG.md
+        
+        if [ -n "$PREV_TAG" ]; then
+          git log --pretty=format:"- %s (%h)" $COMMIT_RANGE >> CHANGELOG.md
+        else
+          # For first release, show initial commit
+          git log --pretty=format:"- %s (%h)" --max-count=10 >> CHANGELOG.md
+        fi
+        
         echo "" >> CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "## PyPI Package" >> CHANGELOG.md
