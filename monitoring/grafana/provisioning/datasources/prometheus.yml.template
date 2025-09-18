@@ -1,0 +1,55 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:${PROMETHEUS_PORT}
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      queryTimeout: 60s
+      manageAlerts: true
+      alertmanagerUid: null
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger
+          urlDisplayLabel: "View Trace"
+    secureJsonData: {}
+    version: 1
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:${JAEGER_UI_PORT}
+    uid: jaeger
+    editable: true
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ['service.name', 'service.instance.id']
+        mappedTags: [{ key: 'service.name', value: 'service' }]
+        mapTagNamesEnabled: true
+        spanStartTimeShift: '1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+        filterBySpanID: true
+    version: 1
+
+  - name: Redis
+    type: redis-datasource
+    access: proxy
+    url: redis://${REDIS_HOST}:${REDIS_PORT}
+    uid: redis
+    editable: true
+    jsonData:
+      client: standalone
+      poolSize: 5
+      timeout: 30
+      pingInterval: 0
+      pipelineWindow: 0
+    secureJsonData:
+      password: ${REDIS_PASSWORD}
+    version: 1

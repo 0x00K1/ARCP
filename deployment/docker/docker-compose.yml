@@ -1,0 +1,420 @@
+name: ARCP
+services:
+  arcp:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+      target: ${ENVIRONMENT:-production}
+      args:
+        PYTHON_VERSION: 3.11
+        POETRY_VERSION: 1.6.1
+        USER_ID: 1000
+        GROUP_ID: 1000
+        ARCP_VERSION: 2.0.0
+        ARCP_BUILD_DATE: 20-03-2025
+        ARCP_HOST: ${ARCP_HOST:-0.0.0.0}
+        ARCP_PORT: ${ARCP_PORT:-8001}
+        ARCP_DEBUG: ${ARCP_DEBUG:-false}
+        ARCP_LOGS_DIR: ${ARCP_LOGS_DIR:-/app/logs}
+        ENVIRONMENT: ${ENVIRONMENT:-production}
+        ARCP_DATA_DIR: ${ARCP_DATA_DIR:-/app/data}
+        TZ: ${TZ:-UTC}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    container_name: arcp
+    restart: unless-stopped
+    ports:
+      - "${ARCP_PORT:-8001}:${ARCP_PORT:-8001}"
+    environment:
+      # Service Configuration
+      ARCP_HOST: ${ARCP_HOST:-0.0.0.0}
+      ARCP_PORT: ${ARCP_PORT:-8001}
+      ARCP_DEBUG: ${ARCP_DEBUG:-false}
+      ARCP_LOGS_DIR: ${ARCP_LOGS_DIR:-/app/logs}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      
+      # Security Configuration
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000,http://localhost:8001}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+      
+      # CSP connect-src controls for dashboard network calls
+      CSP_ALLOW_CONNECT_HTTP: ${CSP_ALLOW_CONNECT_HTTP:-true}
+      CSP_ALLOW_CONNECT_HTTPS: ${CSP_ALLOW_CONNECT_HTTPS:-true}
+      
+      # Rate Limiting
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-100}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-20}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-1440}
+      MAX_SESSIONS: ${MAX_SESSIONS:-5}
+      
+      # Request Security
+      MAX_JSON_SIZE: ${MAX_JSON_SIZE:-1048576}
+      MAX_QUERY_PARAMS: ${MAX_QUERY_PARAMS:-50}
+      MAX_HEADER_SIZE: ${MAX_HEADER_SIZE:-8192}
+      
+      # Security Monitoring
+      SECURITY_LOGGING: ${SECURITY_LOGGING:-true}
+      
+      # IP Restrictions
+      IP_DEFAULT_DENY: ${IP_DEFAULT_DENY:-false}
+      BLOCKED_IPS: ${BLOCKED_IPS:-}
+      ALLOWED_IP_RANGES: ${ALLOWED_IP_RANGES:-}
+      
+      # Content Filtering
+      CONTENT_FILTERING: ${CONTENT_FILTERING:-true}
+      
+      # Data Storage
+      ARCP_DATA_DIR: ${ARCP_DATA_DIR:-/app/data}
+      REDIS_DATA_DIR: ${REDIS_DATA_DIR:-/data}
+      PROMETHEUS_DATA_DIR: ${PROMETHEUS_DATA_DIR:-/data}
+      GRAFANA_DATA_DIR: ${GRAFANA_DATA_DIR:-/var/lib/grafana}
+
+      # State Agent Configuration
+      STATE_FILE: ${STATE_FILE:-registry_state.json}
+
+      # Timezone Configuration
+      TZ: ${TZ:-UTC}
+
+      # Agent Types Configuration
+      ALLOWED_AGENT_TYPES: ${ALLOWED_AGENT_TYPES:-security,monitoring,automation,networking,test}
+      
+      # Agent Configuration
+      AGENT_HEARTBEAT_TIMEOUT: ${AGENT_HEARTBEAT_TIMEOUT:-60}
+      AGENT_CLEANUP_INTERVAL: ${AGENT_CLEANUP_INTERVAL:-60}
+
+      # Authentication
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-3000}
+
+      # Admin Authentication
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-ARCP}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ARCP}
+          
+      # Agent Registration Keys Configuration
+      AGENT_KEYS: ${AGENT_KEYS:-test-agent-001,test-agent-002,test-agent-003}
+      
+      # WebSocket Configuration
+      WEBSOCKET_INTERVAL: ${WEBSOCKET_INTERVAL:-30}
+      WEBSOCKET_TIMEOUT: ${WEBSOCKET_TIMEOUT:-30}
+      WEBSOCKET_PING_INTERVAL: ${WEBSOCKET_PING_INTERVAL:-30}
+      WEBSOCKET_MAX_CONNECTIONS: ${WEBSOCKET_MAX_CONNECTIONS:-100}
+
+      # Dashboard WebSocket
+      DASHBOARD_WS_INTERVAL: ${DASHBOARD_WS_INTERVAL:-5}
+      DASHBOARD_WS_TIMEOUT: ${DASHBOARD_WS_TIMEOUT:-30}
+      DASHBOARD_WS_PING_INTERVAL: ${DASHBOARD_WS_PING_INTERVAL:-30}
+      DASHBOARD_WS_MAX_CONNECTIONS: ${DASHBOARD_WS_MAX_CONNECTIONS:-5}
+
+      # Agent WebSocket
+      AGENT_WS_INTERVAL: ${AGENT_WS_INTERVAL:-5}
+      AGENT_WS_TIMEOUT: ${AGENT_WS_TIMEOUT:-30}
+      AGENT_WS_PING_INTERVAL: ${AGENT_WS_PING_INTERVAL:-30}
+      AGENT_WS_MAX_CONNECTIONS: ${AGENT_WS_MAX_CONNECTIONS:-100}
+
+      # Public WebSocket
+      PUBLIC_WS_INTERVAL: ${PUBLIC_WS_INTERVAL:-30}
+      PUBLIC_WS_TIMEOUT: ${PUBLIC_WS_TIMEOUT:-30}
+      PUBLIC_WS_PING_INTERVAL: ${PUBLIC_WS_PING_INTERVAL:-30}
+      PUBLIC_WS_MAX_CONNECTIONS: ${PUBLIC_WS_MAX_CONNECTIONS:-100}
+
+      # Vector Search
+      VECTOR_SEARCH_TOP_K: ${VECTOR_SEARCH_TOP_K:-10}
+      VECTOR_SEARCH_MIN_SIMILARITY: ${VECTOR_SEARCH_MIN_SIMILARITY:-0.5}
+
+      # Network
+      NETWORK_INTERFACE_CAPACITY_MBPS: ${NETWORK_INTERFACE_CAPACITY_MBPS:-1000}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-"%(asctime)s - %(name)s - %(levelname)s - %(message)s"}
+      DASHBOARD_LOG_BUFFER_MAXLEN: ${DASHBOARD_LOG_BUFFER_MAXLEN:-10000}
+      DASHBOARD_LOG_MESSAGE_MAXLEN: ${DASHBOARD_LOG_MESSAGE_MAXLEN:-2048}
+      
+      # Azure OpenAI Configuration
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      AZURE_API_BASE: ${AZURE_API_BASE:-}
+      AZURE_API_VERSION: ${AZURE_API_VERSION:-2024-02-01}
+      AZURE_EMBEDDING_DEPLOYMENT: ${AZURE_EMBEDDING_DEPLOYMENT:-text-embedding-ada-002}
+      
+      # Redis Configuration
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-admin}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_HEALTH_CHECK_INTERVAL: ${REDIS_HEALTH_CHECK_INTERVAL:-30}
+      REDIS_MAX_MEMORY: ${REDIS_MAX_MEMORY:-256mb}
+      REDIS_EXPORTER_PORT: ${REDIS_EXPORTER_PORT:-9121}
+
+      # Prometheus Configuration
+      PROMETHEUS_HOST: ${PROMETHEUS_HOST:-prometheus}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
+      METRICS_SCRAPE_TOKEN: ${METRICS_SCRAPE_TOKEN:-}
+
+      # Grafana Configuration
+      GRAFANA_HOST: ${GRAFANA_HOST:-grafana}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+
+      # OpenTelemetry Tracing
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      JAEGER_ENDPOINT: ${JAEGER_ENDPOINT:-http://jaeger:14268/api/traces}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://jaeger:4317}
+      TRACE_SERVICE_NAME: ${TRACE_SERVICE_NAME:-arcp}
+      TRACE_SERVICE_VERSION: ${TRACE_SERVICE_VERSION:-2.0.0}
+      TRACE_ENVIRONMENT: ${TRACE_ENVIRONMENT:-development}
+      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-1.0}
+      JAEGER_UI_PORT: ${JAEGER_UI_PORT:-16686}
+      JAEGER_GRPC_PORT: ${JAEGER_GRPC_PORT:-14250}
+      JAEGER_THRIFT_PORT: ${JAEGER_THRIFT_PORT:-14268}
+      JAEGER_OTLP_GRPC_PORT: ${JAEGER_OTLP_GRPC_PORT:-4317}
+      JAEGER_OTLP_HTTP_PORT: ${JAEGER_OTLP_HTTP_PORT:-4318}
+      JAEGER_METRICS_PORT: ${JAEGER_METRICS_PORT:-14269}
+
+    volumes:
+      - arcp_data:${ARCP_DATA_DIR}
+      - arcp_logs:${ARCP_LOGS_DIR}
+    tmpfs:
+      - /tmp:rw,exec,size=100M
+      - /var/tmp:rw,exec,size=100M
+    depends_on:
+      redis:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    networks:
+      arcp_network:
+        aliases:
+          - ${REDIS_HOST}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${ARCP_PORT:-8001}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=arcp"
+
+  redis:
+    image: redis:7-alpine
+    container_name: arcp-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT}:6379"
+    command: >
+      redis-server 
+      --appendonly yes
+      --replica-read-only no
+      --maxmemory ${REDIS_MAX_MEMORY}
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
+    volumes:
+      - redis_data:${REDIS_DATA_DIR}
+    networks:
+      arcp_network:
+        aliases:
+          - ${REDIS_HOST}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,exec,size=100M
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=redis"
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: arcp-redis-exporter
+    restart: unless-stopped
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    environment:
+      REDIS_ADDR: "redis://redis:${REDIS_PORT:-6379}"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    networks:
+      - arcp_network
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${REDIS_EXPORTER_PORT:-9121}/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=redis-exporter"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: arcp-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    env_file:
+      - .env
+    environment:
+      ARCP_PORT: ${ARCP_PORT:-8001}
+      REDIS_EXPORTER_PORT: ${REDIS_EXPORTER_PORT:-9121}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      JAEGER_METRICS_PORT: ${JAEGER_METRICS_PORT:-14269}
+      METRICS_SCRAPE_TOKEN: ${METRICS_SCRAPE_TOKEN:-}
+    volumes:
+      - ../../monitoring/prometheus/prometheus.yml.template:/etc/prometheus/prometheus.yml.template:ro
+      - ../../monitoring/prometheus/entrypoint.sh:/entrypoint.sh:ro
+      - prometheus_data:${PROMETHEUS_DATA_DIR}
+    entrypoint: ["sh", "/entrypoint.sh"]
+    depends_on:
+      - arcp
+    networks:
+      arcp_network:
+        aliases:
+          - ${PROMETHEUS_HOST}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${PROMETHEUS_PORT:-9090}/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=prometheus"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: arcp-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: redis-datasource
+      GF_METRICS_ENABLED: "true"
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
+      JAEGER_UI_PORT: ${JAEGER_UI_PORT:-16686}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-admin}
+    volumes:
+      - grafana_data:${GRAFANA_DATA_DIR}
+      - ../../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../monitoring/grafana/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["sh", "/entrypoint.sh"]
+    depends_on:
+      - prometheus
+    networks:
+      arcp_network:
+        aliases:
+          - ${GRAFANA_HOST}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${GRAFANA_PORT}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=grafana"
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: arcp-jaeger
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    ports:
+      - "${JAEGER_UI_PORT}:16686"  # Jaeger UI
+      - "${JAEGER_GRPC_PORT}:14250"  # gRPC
+      - "${JAEGER_THRIFT_PORT}:14268"  # HTTP
+      - "${JAEGER_OTLP_GRPC_PORT}:4317"  # OTLP gRPC
+      - "${JAEGER_OTLP_HTTP_PORT}:4318"  # OTLP HTTP
+      - "${JAEGER_METRICS_PORT}:14269"  # Jaeger metrics
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
+      COLLECTOR_OTLP_ENABLED: true
+    networks:
+      - arcp_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${JAEGER_UI_PORT:-16686}/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=jaeger"
+
+volumes:
+  arcp_data:
+  arcp_logs:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  arcp_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    labels:
+      - "com.docker.compose.network=arcp" 

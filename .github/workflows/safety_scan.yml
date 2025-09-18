@@ -1,0 +1,24 @@
+name: Security
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check SAFETY_API_KEY presence
+        run: |
+          if [ -z "${{ secrets.SAFETY_API_KEY }}" ]; then
+            echo "SAFETY_API_KEY is missing"; exit 1
+          else
+            echo "SAFETY_API_KEY is set"
+          fi
+
+      - name: Run Safety CLI to check for vulnerabilities
+        uses: pyupio/safety-action@v1
+        with:
+          api-key: ${{ secrets.SAFETY_API_KEY }}

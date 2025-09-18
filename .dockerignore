@@ -1,0 +1,270 @@
+# .dockerignore for ARCP (Agent Registry & Control Protocol)
+
+# =================================
+# Version Control
+# =================================
+.git
+.gitignore
+.gitattributes
+
+# =================================
+# Python
+# =================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# =================================
+# Virtual Environments
+# =================================
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# =================================
+# Poetry
+# =================================
+poetry.lock
+.venv/
+
+# =================================
+# Testing
+# =================================
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+test-reports/
+htmlcov/
+
+# =================================
+# Development Tools
+# =================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+
+# =================================
+# IDEs and Editors
+# =================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.spyderproject
+.spyproject
+
+# =================================
+# Operating System
+# =================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# =================================
+# Logs and Runtime
+# =================================
+*.log
+logs/
+log/
+*.pid
+*.seed
+*.pid.lock
+
+# =================================
+# Temporary Files
+# =================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# =================================
+# Documentation (exclude from production)
+# =================================
+docs/
+*.md
+README*
+CHANGELOG*
+CONTRIBUTING*
+LICENSE*
+SUPPORT*
+SECURITY*
+
+# =================================
+# Development Configuration
+# =================================
+.env.local
+.env.development
+.env.test
+.env.production
+.env.example
+config.dev.json
+config.test.json
+
+# =================================
+# Testing and CI/CD
+# =================================
+# tests/  # Commented out for testing Docker stage
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+Jenkinsfile
+pytest.ini
+tox.ini
+.coveragerc
+
+# =================================
+# Deployment and Infrastructure (keep specific)
+# =================================
+deployment/docker/run-docker.*
+deployment/k8s/
+terraform/
+ansible/
+
+# =================================
+# Monitoring and Operations (keep config, exclude data)
+# =================================
+monitoring/grafana/data/
+monitoring/prometheus/data/
+*.prom
+
+# =================================
+# Examples and Demos
+# =================================
+# examples/  # Commented out for testing Docker stage
+demo/
+samples/
+
+# =================================
+# Plans and Project Management
+# =================================
+plans/
+.project/
+TODO.md
+ROADMAP.md
+
+# =================================
+# Node.js (if any frontend tooling)
+# =================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# =================================
+# Database
+# =================================
+*.db
+*.sqlite
+*.sqlite3
+data/
+db_data/
+
+# =================================
+# Cache and Build Artifacts
+# =================================
+.cache/
+.npm/
+.yarn/
+.sass-cache/
+*.map
+
+# =================================
+# Security
+# =================================
+*.pem
+*.key
+*.crt
+secrets/
+.secrets/
+
+# =================================
+# Jupyter Notebooks
+# =================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =================================
+# Local Development
+# =================================
+.local/
+local/
+dev/
+development/
+
+# =================================
+# Backup Files
+# =================================
+*.backup
+*.old
+*.orig
+*~
+
+# =================================
+# ARCP Specific
+# =================================
+# Keep essential files but exclude development/testing artifacts
+!src/
+!web/
+!pyproject.toml
+!requirements.txt
+!deployment/docker/Dockerfile
+!deployment/docker/docker-compose.yml
+
+# Exclude ARCP development files
+registry_state.json.backup
+*.state.backup
+agent_logs/
+test_outputs/
+performance_tests/
+scripts/
+plans/

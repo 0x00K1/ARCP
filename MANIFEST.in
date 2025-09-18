@@ -1,0 +1,66 @@
+# MANIFEST.in - Include additional files in the Python package distribution
+
+# Include documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CONTRIBUTING.md
+include SECURITY.md
+include SUPPORT.md
+
+# Include configuration files
+include pyproject.toml
+include requirements.txt
+
+# Include examples and demonstrations
+recursive-include examples *.py
+recursive-include examples *.md
+
+# Include web assets (templates, static files)
+recursive-include web/templates *.html
+recursive-include web/static *.css *.js *.svg *.ico
+
+# Include deployment configurations
+recursive-include deployment *.yml *.yaml *.dockerfile *.sh *.bat *.ps1
+include deployment/docker/Dockerfile
+
+# Include monitoring configurations
+recursive-include monitoring *.yml *.yaml *.json *.sh *.template
+
+# Include documentation source
+recursive-include docs *.md *.yml *.yaml
+recursive-include docs/assets *
+
+# Include test files (for development packages)
+recursive-include tests *.py *.ini *.yaml *.yml *.json
+recursive-include tests *.md
+
+# Include plans and design documents
+recursive-include plans *.md *.txt
+
+# Exclude cache and build artifacts
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *~
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude __pycache__/*
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+
+# Exclude development and IDE files
+global-exclude .git*
+global-exclude .vscode/*
+global-exclude .idea/*
+global-exclude *.swp
+global-exclude *.swo
+
+# Exclude virtual environments
+global-exclude venv/*
+global-exclude env/*
+global-exclude .env
+
+# Exclude logs and temporary files
+global-exclude *.log
+global-exclude *.tmp
+global-exclude *.temp

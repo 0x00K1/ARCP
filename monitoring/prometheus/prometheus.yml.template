@@ -1,0 +1,95 @@
+# Global configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monitor: 'arcp-monitor'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:{{PROMETHEUS_PORT}}']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    honor_labels: true
+
+  # ARCP service metrics
+  - job_name: 'arcp'
+    static_configs:
+      - targets: ['arcp:{{ARCP_PORT}}']
+    scrape_interval: 15s
+    metrics_path: /metrics/scrape
+    honor_labels: true
+    scrape_timeout: 10s
+    bearer_token: '{{METRICS_SCRAPE_TOKEN}}'
+
+  # Redis metrics via redis-exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:{{REDIS_EXPORTER_PORT}}']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    honor_labels: true
+    scrape_timeout: 10s
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:{{GRAFANA_PORT}}']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    honor_labels: true
+    scrape_timeout: 10s
+
+  # Jaeger metrics
+  - job_name: 'jaeger'
+    static_configs:
+      - targets: ['jaeger:{{JAEGER_METRICS_PORT}}']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    honor_labels: true
+    scrape_timeout: 10s
+
+  # Docker daemon metrics (if available)
+  # - job_name: 'docker'
+  #  static_configs:
+  #    - targets: ['host.docker.internal:9323']
+  #  scrape_interval: 30s
+  #  metrics_path: /metrics
+  #  honor_labels: true
+  #  scrape_timeout: 10s
+
+# Remote write configuration (optional)
+# remote_write:
+#   - url: "https://prometheus-remote-write-url"
+#     basic_auth:
+#       username: "ARCP"
+#       password: "ARCP"
+
+# Remote read configuration (optional)
+# remote_read:
+#   - url: "https://prometheus-remote-read-url"
+#     basic_auth:
+#       username: "ARCP"
+#       password: "ARCP"
+
+# Storage configuration (these should be set as command-line flags)
+# --storage.tsdb.retention.time=15d
+# --storage.tsdb.retention.size=2GB
+# --storage.tsdb.wal-compression=true

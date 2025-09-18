@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ARCP Dashboard - Agent Registry & Control Protocol for managing Agents">
+    <meta name="theme-color" content="#667eea">
+    <title>ARCP</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/icons/favicon.svg">
+    
+    <!-- External CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Local CSS -->
+    <link href="/static/css/dashboard.css" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard-container" id="dashboardContainer" style="display: none;">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <img src="/static/icons/favicon.svg" alt="ARCP Logo" style="width: 50px; height: 50px; margin-right: 0.1rem;">
+                    <h1>ARCP Dashboard</h1>
+                    <span class="subtitle">Agent Registry & Control Protocol</span>
+                </div>
+                <div class="header-actions">
+                    <div class="status-indicator" id="connectionStatus">
+                        <i class="fas fa-circle"></i>
+                        <span>Connected</span>
+                    </div>
+                    <button class="btn btn-icon" id="darkModeToggle" onclick="dashboard.toggleDarkMode()" title="Toggle Dark Mode">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <button class="btn btn-primary" onclick="refreshData()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="dashboard-nav">
+            <ul class="nav-tabs">
+                <li class="nav-item active" data-tab="overview">
+                    <i class="fas fa-dashboard"></i> Overview
+                </li>
+                <li class="nav-item" data-tab="agents">
+                    <i class="fas fa-robot"></i> Agents
+                </li>
+                <li class="nav-item" data-tab="monitoring">
+                    <i class="fas fa-chart-line"></i> Monitoring
+                </li>
+                <li class="nav-item" data-tab="alerts">
+                    <i class="fas fa-bell"></i> Alerts
+                </li>
+                <li class="nav-item" data-tab="logs">
+                    <i class="fas fa-file-alt"></i> Logs
+                </li>
+                <li class="nav-item" data-tab="settings">
+                    <i class="fas fa-cog"></i> Settings
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="dashboard-main">
+            <!-- Overview Tab -->
+            <div id="overview" class="tab-content active">
+                <!-- System Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="totalAgents">0</h3>
+                            <p>Total Agents</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon alive">
+                            <i class="fas fa-heartbeat"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="aliveAgents">0</h3>
+                            <p>Alive Agents</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon dead">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="deadAgents">0</h3>
+                            <p>Dead Agents</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-layer-group"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="agentTypes">0</h3>
+                            <p>Agent Types</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="charts-section">
+                    <div class="chart-container">
+                        <h3>Agent Status Distribution</h3>
+                        <div style="display: flex; align-items: center; justify-content: center; height: 200px; font-size: 2.0rem; color: #888;">N A</div>
+                    </div>
+                    <div class="chart-container">
+                        <h3>Agent Types Distribution</h3>
+                        <div style="display: flex; align-items: center; justify-content: center; height: 200px; font-size: 2.0rem; color: #888;">N A</div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="activity-section">
+                    <h3>Recent Agent Activity</h3>
+                    <div class="activity-list" id="recentActivity">
+                        <!-- Activity items will be populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agents Tab -->
+            <div id="agents" class="tab-content">
+                <div class="agents-header">
+                    <h2>Agent Management</h2>
+                    <div class="agents-controls">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="agentSearch" placeholder="Search agents...">
+                        </div>
+                        <select id="agentTypeFilter">
+                            <option value="">All Types</option>
+                        </select>
+                        <select id="agentStatusFilter">
+                            <option value="">All Status</option>
+                            <option value="alive">Alive</option>
+                            <option value="dead">Dead</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="agents-grid" id="agentsGrid">
+                    <!-- Agent cards will be populated dynamically -->
+                </div>
+                <div class="pagination-controls" id="agentPaginationControls" style="display: none;">
+                    <div class="pagination-info">
+                        <span id="paginationInfo">Showing 0-0 of 0 agents</span>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button class="btn btn-secondary" id="prevPageBtn" onclick="dashboard.goToPreviousPage()" disabled>
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <span class="page-indicator">
+                            Page <span id="currentPageNumber">1</span> of <span id="totalPagesNumber">1</span>
+                        </span>
+                        <button class="btn btn-secondary" id="nextPageBtn" onclick="dashboard.goToNextPage()" disabled>
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monitoring Tab -->
+            <div id="monitoring" class="tab-content">
+                <!-- Monitoring Header -->
+                <div class="monitoring-header">
+                    <div class="header-left">
+                        <h2>Real-time Monitoring</h2>
+                        <div class="status-badges">
+                            <span class="status-badge" id="systemStatus">
+                                <i class="fas fa-circle status-green"></i> System Healthy
+                            </span>
+                            <span class="status-badge" id="dbStatus">
+                                <i class="fas fa-database"></i> DB Connected
+                            </span>
+                            <span class="status-badge" id="wsStatus">
+                                <i class="fas fa-wifi"></i> WebSocket Active
+                            </span>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                <div class="monitoring-controls">
+                    <button class="btn btn-secondary" id="pauseMonitoring" onclick="dashboard.toggleMonitoring()">
+                        <i class="fas fa-pause"></i> <span>Pause</span>
+                    </button>
+                    <button class="btn btn-primary" id="exportMonitoringData" onclick="dashboard.exportMonitoringData()">
+                        <i class="fas fa-download"></i> Export
+                    </button>
+                </div>
+                    </div>
+                </div>
+
+                <!-- Live Metrics Dashboard -->
+                <div class="live-metrics-grid">
+                    <!-- System Health Card -->
+                    <div class="metric-card system-health">
+                        <div class="card-header">
+                            <h4><i class="fas fa-heartbeat"></i> System Health</h4>
+                            <span class="last-update" id="systemHealthUpdate">Loading...</span>
+                        </div>
+                        <div class="metric-content">
+                            <div class="health-indicators">
+                                <div class="health-item">
+                                    <div class="health-label">ARCP Service</div>
+                                    <div class="health-value" id="arcpHealth">
+                                        <i class="fas fa-circle status-gray"></i> Checking...
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-label">Redis Cache</div>
+                                    <div class="health-value" id="redisHealth">
+                                        <i class="fas fa-circle status-gray"></i> Checking...
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-label">AI Services</div>
+                                    <div class="health-value" id="aiHealth">
+                                        <i class="fas fa-circle status-gray"></i> Checking...
+                                    </div>
+                                </div>
+                                <div class="health-item">
+                                    <div class="health-label">WebSocket</div>
+                                    <div class="health-value" id="websocketHealth">
+                                        <i class="fas fa-circle status-gray"></i> Checking...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Agent Performance Card -->
+                    <div class="metric-card agent-performance">
+                        <div class="card-header">
+                            <h4><i class="fas fa-tachometer-alt"></i> Agent Performance</h4>
+                            <div class="metric-summary" id="perfSummary">Avg: 0.5s</div>
+                        </div>
+                        <div class="metric-content">
+                            <canvas id="realtimePerformanceChart" height="180"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Network Activity Card -->
+                    <div class="metric-card network-activity">
+                        <div class="card-header">
+                            <h4><i class="fas fa-network-wired"></i>Agent Net Activity</h4>
+                            <div class="metric-summary" id="networkSummary">0 req/min</div>
+                        </div>
+                        <div class="metric-content">
+                            <canvas id="networkActivityChart" height="180"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Error Rate Card -->
+                    <div class="metric-card error-rate">
+                        <div class="card-header">
+                            <h4><i class="fas fa-exclamation-triangle"></i>Agent Error Rate</h4>
+                            <div class="metric-summary" id="errorSummary">0.2%</div>
+                        </div>
+                        <div class="metric-content">
+                            <canvas id="errorRateChart" height="180"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Response Times Metrics -->
+                    <div class="metric-card">
+                        <div class="card-header">
+                            <h4><i class="fas fa-clock"></i> Response Metrics</h4>
+                            <span class="last-update">Live</span>
+                        </div>
+                        <div class="metric-content" id="responseTimesMetrics">
+                            <div class="metric-item">
+                                <h5>Agents alive</h5>
+                                <p>0/0 (0%)</p>
+                            </div>
+                            <div class="metric-item">
+                                <h5>Average Uptime</h5>
+                                <p>0 hours</p>
+                            </div>
+                            <div class="metric-item">
+                                <h5>Agent Types</h5>
+                                <p>0 types</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Agent Status Grid -->
+                <div class="agent-status-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-robot"></i> Live Agent Status</h3>
+                        <div class="status-filters">
+                            <button class="filter-btn active" data-filter="all">All</button>
+                            <button class="filter-btn" data-filter="alive">Alive</button>
+                            <button class="filter-btn" data-filter="dead">Dead</button>
+                            <button class="filter-btn" data-filter="warning">Warning</button>
+                        </div>
+                    </div>
+                    <div class="agent-status-grid" id="agentStatusGrid">
+                        <!-- Agent status cards will be populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Advanced Metrics -->
+                <div class="advanced-metrics-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-chart-bar"></i> Advanced Metrics</h3>
+                        <div class="timerange-selector">
+                            <select id="metricsTimeRange">
+                                <option value="5m">Last 5 minutes</option>
+                                <option value="15m" selected>Last 15 minutes</option>
+                                <option value="1h">Last hour</option>
+                                <option value="4h">Last 4 hours</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="advanced-charts-grid">
+                        <div class="chart-card">
+                            <h4>Agent Response Time Distribution</h4>
+                            <canvas id="responseTimeDistChart"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h4>Agent Load Balancing</h4>
+                            <canvas id="loadBalancingChart"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h4>Agent Success Rate</h4>
+                            <canvas id="successRateChart"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h4>System Resource Utilization</h4>
+                            <canvas id="resourceUtilChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alerts Tab -->
+            <div id="alerts" class="tab-content">
+                <div class="alerts-section">
+                    <div class="alerts-header">
+                        <h2>System Alerts</h2>
+                        <div class="alerts-controls">
+                            <div class="search-box">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="alertSearch" placeholder="Search alerts...">
+                            </div>
+                            <select id="alertTypeFilter">
+                                <option value="">All Types</option>
+                                <option value="critical">Critical</option>
+                                <option value="warning">Warning</option>
+                                <option value="info">Information</option>
+                            </select>
+                            <button class="btn btn-secondary" id="clearAlertsBtn"><i class="fas fa-trash"></i> Clear</button>
+                        </div>
+                    </div>
+                    <div class="alerts-container" id="realtimeAlerts">
+                        <div style="text-align: center; color: #666; padding: 2rem;">No alerts</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs Tab -->
+            <div id="logs" class="tab-content">
+                <div class="logs-header">
+                    <h2>System Logs</h2>
+                    <div class="logs-controls">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="logSearch" placeholder="Search logs...">
+                        </div>
+                        <select id="logLevel">
+                            <option value="">All Levels</option>
+                            <option value="INFO">Information</option>
+                            <option value="SUCCESS">Success</option>
+                            <option value="WARNING">Warning</option>
+                            <option value="CRITICAL">Critical</option>
+                            <option value="ERROR">Error</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="dashboard.clearLogs()">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="logs-container" id="logsContainer">
+                    <!-- Log entries will be populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings" class="tab-content">
+                <div class="settings-section">
+                    <h2 style="align-content: center; display: flex; justify-content: center;">Dashboard Settings</h2>
+                    
+                    <!-- Admin Authentication Status -->
+                    <div class="auth-status" id="adminAuthStatus">
+                        <span style="color: #28a745; font-weight: 500;">
+                            <i class="fas fa-user-shield"></i> Admin: admin
+                        </span>
+                        <button onclick="dashboard.logout()" style="
+                            margin-left: 8px; background: #dc3545; color: white; border: none;
+                            padding: 2px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;
+                        ">Logout</button>
+                    </div>
+                    
+                    <div class="settings-form">
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="enableAutoRefresh"> Enable Auto-refresh
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label for="refreshInterval">Auto-refresh Interval (seconds)</label>
+                            <input type="text" id="refreshInterval" value="60" placeholder="(Min:30 Max:3600)" disabled>
+                            <small class="validation-message" id="refreshIntervalError"></small>
+                        </div>
+                        <div class="setting-item">
+                            <label for="maxLogEntries">Maximum Log Entries</label>
+                            <input type="text" id="maxLogEntries" value="1000">
+                            <small class="validation-message" id="maxLogEntriesError"></small>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="soundAlerts"> Sound Alerts
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" style="align-content: center; display: flex; justify-content: center;" onclick="dashboard.saveSettings()">
+                            <i class="fas fa-save"></i> Save Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="z-index: 2147483647;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <!-- PIN Modal (hidden by default) -->
+    <div id="pinModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" id="closePinModal">&times;</span>
+            <h2 id="pinModalTitle">Set PIN</h2>
+            <form id="pinForm" autocomplete="off">
+                <div class="form-group">
+                    <input type="password" id="pinInput" maxlength="32" required autocomplete="off" />
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="pinSubmitBtn">Submit</button>
+                </div>
+                <div id="pinError" class="validation-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/secmanager.js"></script>
+    <script src="/static/js/chart.min.js"></script>
+</body>
+</html> 
