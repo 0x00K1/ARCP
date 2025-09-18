@@ -220,7 +220,6 @@ secrets.yaml
 
 # OS generated files
 .DS_Store?
-Icon?
 Thumbs.db
 
 # Backup files

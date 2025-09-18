@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "arcp-py"
-version = "2.0.0"
+version = "2.0.1"
 description = "ARCP (Agent Registry & Control Protocol) is a sophisticated agent orchestration protocol that provides centralized service discovery, registration, and control for distributed agent systems."
 authors = ["Muhannad <01muhannad.a@gmail.com>"]
 license = "Apache-2.0"
