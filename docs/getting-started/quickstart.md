@@ -58,7 +58,7 @@ Expected response:
 {
   "status": "healthy",
   "timestamp": "2025-09-06T00:23:56.920083",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "uptime": "operational",
   "service": "ARCP Registry",
   "features": {

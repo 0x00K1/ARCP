@@ -128,7 +128,7 @@ class ARCPClient:
         retry_attempts: int = 3,
         retry_delay: float = 1.0,
         max_retry_delay: float = 60.0,
-        user_agent: str = "ARCPClient/2.0.0",
+        user_agent: str = "ARCPClient/2.0.2",
     ):
         """
         Initialize ARCP client.

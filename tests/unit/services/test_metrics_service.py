@@ -67,6 +67,14 @@ class TestPrometheusMetrics:
         assert content_type == "text/plain"
         assert b"prometheus-client not available" in data
 
+    def _is_valid_prometheus_content_type(self, content_type: str) -> bool:
+        """Check if content type is a valid Prometheus format."""
+        import re
+
+        # Accept any valid prometheus content type format
+        pattern = r"text/plain; version=\d+\.\d+\.\d+; charset=utf-8"
+        return bool(re.match(pattern, content_type))
+
     @patch("src.arcp.services.metrics.PROMETHEUS_AVAILABLE", True)
     @patch("src.arcp.services.metrics.generate_latest")
     def test_get_prometheus_metrics_success(self, mock_generate):
@@ -78,9 +86,9 @@ class TestPrometheusMetrics:
 
         data, content_type = self.service.get_prometheus_metrics()
 
-        assert (
-            content_type == "text/plain; version=0.0.4; charset=utf-8"
-        )  # Updated to actual content type
+        assert self._is_valid_prometheus_content_type(
+            content_type
+        ), f"Invalid content type: {content_type}"
         assert b"test_metric 1.0" in data
         mock_generate.assert_called_once()
 
@@ -98,8 +106,8 @@ class TestPrometheusMetrics:
         # Content type should still be CONTENT_TYPE_LATEST for proper parsing
         assert (
             "openmetrics-text" in content_type
-            or content_type == "text/plain; version=0.0.4; charset=utf-8"
-        )
+            or self._is_valid_prometheus_content_type(content_type)
+        ), f"Invalid content type: {content_type}"
 
 
 @pytest.mark.unit

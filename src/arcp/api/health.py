@@ -53,7 +53,7 @@ async def health_check(
         return {
             "status": service_health,
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "uptime": "operational",
             "service": "ARCP Registry",
             "features": {
@@ -89,7 +89,7 @@ async def health_check(
         return {
             "status": "degraded",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "error": str(e),
             "message": "Health check encountered errors but service is still operational",
         }
@@ -117,7 +117,7 @@ async def detailed_health_check(
         return {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "service": "ARCP Registry",
             "uptime": "operational",
             "components": {
@@ -168,7 +168,7 @@ async def detailed_health_check(
         return {
             "status": "degraded",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "error": str(e),
             "message": "Detailed health check encountered errors but service is still operational",
             "detailed": {"error_details": str(e)},
@@ -198,7 +198,7 @@ async def health_config(
         return {
             "status": "ok",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "required_config": required_missing,
             "optional_config": optional_missing,
         }
@@ -207,7 +207,7 @@ async def health_config(
         return {
             "status": "error",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "error": str(e),
         }
 
@@ -224,7 +224,7 @@ async def health_redis(
             "status": "healthy" if available else "unavailable",
             "redis": "connected" if available else "disconnected",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
         }
     except Exception as e:
         logger.error(f"Redis health error: {e}")
@@ -232,7 +232,7 @@ async def health_redis(
             "status": "error",
             "redis": "unknown",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "error": str(e),
         }
 
@@ -249,13 +249,13 @@ async def health_azure(
             "status": status.get("status", "unknown"),
             "details": status,
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
         }
     except Exception as e:
         logger.error(f"Azure health error: {e}")
         return {
             "status": "error",
             "timestamp": datetime.now().isoformat(),
-            "version": "2.0.0",
+            "version": "2.0.2",
             "error": str(e),
         }

@@ -1,10 +1,10 @@
 """ARCP - Agent Registry & Control Protocol
 
-A sophisticated agent orchestration platform that provides centralized
-service discovery, registration, and control for distributed agent systems.
+A sophisticated agent orchestration protocol that provides centralized
+service discovery, registration, communication, and control for distributed agent systems.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.2"
 __author__ = "Muhannad"
 __email__ = "01muhannad.a@gmail.com"
 __license__ = "Apache-2.0"

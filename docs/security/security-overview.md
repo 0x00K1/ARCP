@@ -488,4 +488,4 @@ Monitor the following for security updates:
 *This security overview provides a comprehensive understanding of ARCP's security architecture. For implementation details, refer to the individual component documentation and configuration guides.*
 
 **Last Updated:** September 2025  
-**Version:** ARCP 2.0.0
+**Version:** ARCP 2.0.2

@@ -7,32 +7,49 @@
 [![PyPI version](https://badge.fury.io/py/arcp-py.svg)](https://badge.fury.io/py/arcp-py)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
 
-**ARCP** (Agent Registry & Control Protocol) is a sophisticated agent orchestration platform that provides centralized service discovery, registration, and control for distributed agent systems. Built with FastAPI and designed for production environments, ARCP enables seamless communication between AI agents, microservices, and distributed applications.
+**ARCP** (Agent Registry & Control Protocol) is a sophisticated agent orchestration protocol that provides centralized service discovery, registration, communication, and control for distributed agent systems. Built with FastAPI and designed for production environments, ARCP enables seamless communication between agents, microservices, and distributed applications.
 
 ## 🚀 Key Features
 
-### 🔍 **Intelligent Agent Discovery**
-- **Semantic Search**: Vector-based agent discovery using Azure OpenAI embeddings
-- **Real-time Updates**: WebSocket-based live agent registry updates
-- **Advanced Filtering**: Search by capabilities, agent types, and performance metrics
+### 🔧 Centralized Management
+- Single point to **register, control, and monitor agents**  
+- Manage lifecycle and configuration from one place  
 
-### 🛡️ **Enterprise Security**
-- **JWT Authentication**: Secure token-based authentication system
-- **Role-based Access Control**: Admin, agent, and public access levels
-- **IP Filtering**: Configurable IP allow/deny lists
-- **Rate Limiting**: Built-in protection against abuse
+### 🔍 Agent Discovery
+- **Semantic Search** using vector embeddings  
+- **Real-time updates** through WebSockets  
+- **Advanced filtering** by type, capabilities, metrics  
 
-### 📊 **Production Monitoring**
-- **Comprehensive Metrics**: Agent performance tracking and reputation scoring
-- **Health Monitoring**: Built-in health checks and status reporting
-- **Observability**: Prometheus metrics, Grafana dashboards, and Jaeger tracing
-- **Real-time Dashboard**: Web-based management interface
+### 🤝 Agent Communication
+- Built-in **secure channels** for agent-to-agent collaboration  
+- **Real-time messaging** and coordination  
 
-### 🔧 **Developer Experience**
-- **Python Client Library**: Easy-to-use async client with full feature support
-- **RESTful API**: Well-documented REST API with OpenAPI/Swagger
-- **Docker Ready**: Complete Docker Compose stack with monitoring
-- **Extensive Examples**: Working examples for agents and clients
+### 🛡️ Security
+- **JWT authentication** and **role-based access control** (Admin, Agent, Public)  
+- **IP filtering** with allow/deny lists  
+- **Rate limiting** against abuse  
+
+### 📊 Dashboard
+- **Metrics, logs, and alerts** in real time  
+- View agents, unregister them, monitor performance  
+
+### 🐳 Production
+- **Docker-ready stack** for deployment  
+- Integrated **monitoring and observability tools**  
+
+### ⚙️ Extensible Architecture
+- **Modular FastAPI design** with clean service separation  
+- **Configuration-driven** customization without code changes  
+- **Well-structured codebase** for adding custom functionality  
+
+### 👨‍💻 Developers
+- **Python client library** with async support  
+- **RESTful API** with OpenAPI  
+- Ready-to-use **examples and demos**  
+
+### 📚 Docs
+- **Comprehensive guides** for setup and usage  
+- **API reference** and advanced topics  
 
 ## 🏗️ Architecture
 
@@ -101,6 +118,10 @@ docker-compose -f deployment/docker/docker-compose.yml up -d
 - **Jaeger**: http://localhost:16686
 
 ### 3. Create Your First Agent
+
+```bash
+pip install arcp-py
+```
 
 ```python
 import asyncio
