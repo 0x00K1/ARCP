@@ -171,7 +171,7 @@ arcp_system_network_utilization_percent 0.3
 
 # Service health metrics
 arcp_service_health_status{arcp_service_health_status="healthy"} 1
-arcp_service_info{environment="development",name="ARCP",version="2.0.2"} 1
+arcp_service_info{environment="development",name="ARCP",version="2.0.3"} 1
 arcp_websocket_connections 0
 ```
 

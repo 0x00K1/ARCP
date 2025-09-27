@@ -240,7 +240,7 @@ curl http://localhost:8001/health
 {
   "status": "healthy",
   "timestamp": "2025-01-XX..."
-  "version": "2.0.2",
+  "version": "2.0.3",
   ...
 }
 ```

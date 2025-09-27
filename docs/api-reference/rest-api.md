@@ -94,7 +94,7 @@ GET /health
 {
   "status": "healthy",
   "timestamp": "2025-01-XX...",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "uptime": "operational",
   "service": "ARCP Registry",
   "features": {
@@ -757,7 +757,7 @@ GET /public/info
 ```json
 {
   "service": "ARCP (Agent Registry & Control Protocol)",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "public_api": {
     "available": true,
     "endpoints": {

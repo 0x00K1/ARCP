@@ -35,7 +35,7 @@ class ARCPConfig:
         """Load configuration from environment variables."""
         # Service Configuration
         self.SERVICE_NAME: str = "ARCP"
-        self.SERVICE_VERSION: str = "2.0.2"
+        self.SERVICE_VERSION: str = "2.0.3"
         self.SERVICE_DESCRIPTION: str = "Agent Registry & Control Protocol"
 
         # Server Configuration

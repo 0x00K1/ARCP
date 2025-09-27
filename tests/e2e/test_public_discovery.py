@@ -382,7 +382,7 @@ class TestPublicDiscoveryE2E:
             assert field in system_info, f"Missing required field: {field}"
 
         assert system_info["service"] == "ARCP (Agent Registry & Control Protocol)"
-        assert system_info["version"] == "2.0.2"
+        assert system_info["version"] == "2.0.3"
 
         # Check API capabilities
         public_api = system_info["public_api"]

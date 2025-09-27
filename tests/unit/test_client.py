@@ -56,7 +56,7 @@ class TestARCPClient:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "status": "healthy",
-            "version": "2.0.2",
+            "version": "2.0.3",
             "timestamp": "2024-01-01T00:00:00Z",
         }
         mock_httpx_client.request.return_value = mock_response
@@ -64,7 +64,7 @@ class TestARCPClient:
         health = await arcp_client.health_check()
 
         assert health["status"] == "healthy"
-        assert health["version"] == "2.0.2"
+        assert health["version"] == "2.0.3"
         mock_httpx_client.request.assert_called_once()
 
     @pytest.mark.asyncio
@@ -74,7 +74,7 @@ class TestARCPClient:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "service": "ARCP",
-            "version": "2.0.2",
+            "version": "2.0.3",
             "public_api": {"features": ["discovery", "search", "stats"]},
         }
         mock_httpx_client.request.return_value = mock_response

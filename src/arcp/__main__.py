@@ -39,7 +39,7 @@ from .core.startup import lifespan
 app = FastAPI(
     title="ARCP (Agent Registry & Control Protocol)",
     description="A sophisticated agent orchestration protocol that provides centralized service discovery, registration, communication, and control for distributed agent systems.",
-    version="2.0.2",
+    version="2.0.3",
     debug=bool(getattr(config, "DEBUG", False)),
     lifespan=lifespan,
 )

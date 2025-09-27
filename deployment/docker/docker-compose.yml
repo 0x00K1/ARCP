@@ -10,7 +10,7 @@ services:
         POETRY_VERSION: 1.6.1
         USER_ID: 1000
         GROUP_ID: 1000
-        ARCP_VERSION: 2.0.2
+        ARCP_VERSION: 2.0.3
         ARCP_BUILD_DATE: 20-03-2025
         ARCP_HOST: ${ARCP_HOST:-0.0.0.0}
         ARCP_PORT: ${ARCP_PORT:-8001}

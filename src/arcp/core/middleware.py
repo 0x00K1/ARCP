@@ -394,7 +394,7 @@ async def security_headers_middleware(request: Request, call_next):
         "Pragma": "no-cache",
         "Expires": "0",
         # Try to remove server information
-        "Server": "ARCP/2.0.2",
+        "Server": "ARCP/2.0.3",
     }
 
     # Add HSTS for HTTPS environments

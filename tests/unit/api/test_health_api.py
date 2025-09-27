@@ -30,7 +30,7 @@ class TestHealthAPI:
             data["status"] == "degraded"
         )  # Changed expectation to match actual behavior
         assert data["service"] == "ARCP Registry"
-        assert data["version"] == "2.0.2"
+        assert data["version"] == "2.0.3"
 
         # Verify that degraded status is due to Redis being unavailable
         assert data["storage"]["redis"] == "error"

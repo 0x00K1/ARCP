@@ -22,7 +22,7 @@ class TestARCPConfig:
 
             # Test service defaults
             assert config_instance.SERVICE_NAME == "ARCP"
-            assert config_instance.SERVICE_VERSION == "2.0.2"
+            assert config_instance.SERVICE_VERSION == "2.0.3"
             assert (
                 config_instance.SERVICE_DESCRIPTION
                 == "Agent Registry & Control Protocol"
