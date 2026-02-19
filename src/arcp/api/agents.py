@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import time
+import time as time_module
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -23,12 +25,15 @@ from ..core.exceptions import (
     AgentNotFoundError,
     AgentRegistrationError,
     ARCPProblemTypes,
+    ProblemDetail,
+    ProblemResponse,
     agent_not_found_problem,
     create_problem_response,
     handle_exception_with_problem_details,
     invalid_input_problem,
     timeout_problem,
 )
+from ..core.redis_scripts import consume_validation_token
 from ..core.registry import AgentRegistry
 from ..models.agent import (
     AgentInfo,
@@ -39,7 +44,9 @@ from ..models.agent import (
     SearchResponse,
 )
 from ..services.metrics import get_metrics_service
+from ..services.redis import get_redis_service
 from ..utils.api_protection import PermissionLevel, RequireAdmin, RequireAgent
+from ..utils.security_enforcement import RequireSecureAgent
 from ..utils.sessions import get_token_payload
 
 router = APIRouter()
@@ -394,12 +401,12 @@ async def websocket_endpoint(
 @router.post(
     "/register",
     response_model=RegistrationResponse,
-    dependencies=[RequireAgent],
+    dependencies=[RequireSecureAgent],  # Enforces DPoP + mTLS when configured
 )
 async def register_agent(
     request: AgentRegistration,
     registry: AgentRegistry = Depends(get_registry),
-    current_user: Dict[str, Any] = RequireAgent,
+    current_user: Dict[str, Any] = RequireSecureAgent,  # Uses secure enforcement
 ):
     """Universal agent registration with comprehensive validation and features"""
     start_time = time.time()
@@ -410,36 +417,113 @@ async def register_agent(
         user_agent_id = current_user.get("agent_id")
         request_agent_id = request.agent_id
 
-        # Security check: agent can only register itself (unless admin or using temp token)
+        # Check if this is a TPR validated token (Phase 3)
         is_temp_token = current_user.get("temp_registration", False)
-        if (
-            not current_user.get("is_admin")
-            and not is_temp_token
-            and user_agent_id != request_agent_id
-        ):
-            logger.warning(
-                f"Agent {user_agent_id} attempted to register different agent {request_agent_id}"
+        is_validated_token = current_user.get("token_type") == "validated"
+        validation_id = current_user.get("validation_id")
+
+        # TPR Path: Atomic validation token consumption
+        if config.FEATURE_THREE_PHASE and is_validated_token and validation_id:
+            logger.info(
+                f"TPR Phase 3: Processing registration for {request_agent_id} "
+                f"with validated token (validation_id={validation_id})"
             )
-            metrics_service.record_agent_registration(
-                agent_type=getattr(request, "agent_type", "unknown"),
-                status="unauthorized",
+
+            redis_service = get_redis_service()
+
+            if not redis_service or not redis_service.is_available():
+                logger.error("Redis not available for TPR validation token consumption")
+                return create_problem_response(
+                    problem_type=ARCPProblemTypes.INTERNAL_ERROR,
+                    detail="Validation service unavailable",
+                    agent_id=request_agent_id,
+                )
+
+            client = redis_service.get_client()
+
+            consume_result = consume_validation_token(
+                client, validation_id, now_timestamp=int(time_module.time())
             )
-            return create_problem_response(
-                problem_type=ARCPProblemTypes.INSUFFICIENT_PERMISSIONS,
-                detail="Agents can only register themselves",
-                agent_id=user_agent_id,
-                request_agent_id=request_agent_id,
+
+            if not consume_result.get("ok"):
+                error_code = consume_result.get("error")
+                logger.warning(
+                    f"Validation token consumption failed for {request_agent_id}: {error_code}"
+                )
+
+                # Map error codes to user-friendly messages
+                error_messages = {
+                    "NO_VALIDATION": "Validation not found or expired",
+                    "ALREADY_USED": "Validation token already used (replay attack prevented)",
+                    "EXPIRED": "Validation token expired",
+                    "SCRIPT_ERROR": "Internal validation error",
+                }
+
+                metrics_service.record_agent_registration(
+                    agent_type=getattr(request, "agent_type", "unknown"),
+                    status=f"tpr_consume_failed_{error_code.lower()}",
+                )
+
+                # Determine status code based on error type
+                status_code = 403 if error_code == "ALREADY_USED" else 401
+
+                problem = ProblemDetail(
+                    type=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+                    title=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["title"],
+                    status=status_code,
+                    detail=error_messages.get(
+                        error_code, f"Validation error: {error_code}"
+                    ),
+                    instance="/agents/register",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    agent_id=request_agent_id,
+                    validation_id=validation_id,
+                    error_code=error_code,
+                )
+                return ProblemResponse(problem)
+
+            # Successfully consumed validation token
+            # binding = consume_result.get("binding")  # Reserved for future use
+            logger.info(
+                f"TPR Phase 3: Validation token consumed successfully for {request_agent_id} "
+                f"(validation_id={validation_id})"
             )
+
+            # Store security binding with agent (for future verification)
+            # This will be used in v2.2.0 for runtime integrity checks
+            agent_key_hash = None  # TPR doesn't use legacy agent_key
+
+        # Legacy Path: Check temporary token and agent authorization
+        else:
+            # Security check: agent can only register itself (unless admin or using temp token)
+            if (
+                not current_user.get("is_admin")
+                and not is_temp_token
+                and user_agent_id != request_agent_id
+            ):
+                logger.warning(
+                    f"Agent {user_agent_id} attempted to register different agent {request_agent_id}"
+                )
+                metrics_service.record_agent_registration(
+                    agent_type=getattr(request, "agent_type", "unknown"),
+                    status="unauthorized",
+                )
+                return create_problem_response(
+                    problem_type=ARCPProblemTypes.INSUFFICIENT_PERMISSIONS,
+                    detail="Agents can only register themselves",
+                    agent_id=user_agent_id,
+                    request_agent_id=request_agent_id,
+                )
+
+            # Extract agent key hash from temporary token for validation (if present)
+            agent_key_hash = None
+            if is_temp_token and current_user.get("agent_key_hash"):
+                agent_key_hash = current_user.get("agent_key_hash")
 
         # Debug: Log the incoming request
         logger.info(
             f"Processing agent registration for: {request.name} (ID: {request.agent_id})"
         )
-
-        # Extract agent key hash from temporary token for validation (if present)
-        agent_key_hash = None
-        if is_temp_token and current_user.get("agent_key_hash"):
-            agent_key_hash = current_user.get("agent_key_hash")
 
         # Register agent (this includes embedding generation and validation)
         await registry.register_agent(request, agent_key_hash=agent_key_hash)

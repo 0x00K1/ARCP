@@ -1,0 +1,302 @@
+# =============================================================================
+# ARCP Dynamic Endpoint Contracts Configuration
+# =============================================================================
+#
+# This file defines custom endpoint contracts for TPR Phase 2 validation.
+# The ARCP server validates that agents implement these endpoints correctly
+# before allowing registration.
+#
+# USAGE:
+#   1. Set ARCP_TPR_ENDPOINT_VALIDATION_MODE=dynamic in your environment
+#   2. Set ARCP_TPR_ENDPOINT_CONTRACTS_FILE to the path of this file
+#   3. Define your endpoints below
+#
+# STRUCTURE:
+#   - version: Schema version (required, must be "1.0")
+#   - endpoints: List of endpoint definitions (required)
+#
+# ENDPOINT FIELDS:
+#   - path: URL path (required, e.g., "/health")
+#   - method: HTTP method (optional, default: "GET")
+#   - timeout: Request timeout in seconds (optional, default: 5)
+#   - required: If true, failure = error; if false, failure = warning (optional, default: true)
+#   - expected_status: List of acceptable HTTP status codes (optional, default: [200])
+#   - request_body: JSON body for POST/PUT requests (optional)
+#   - required_fields: List of fields that must be present in response (optional)
+#   - field_validations: Field-level validation rules (optional)
+#   - description: Human-readable description (optional)
+#
+# FIELD VALIDATION RULES:
+#   - type: "string" | "integer" | "number" | "boolean" | "array" | "object"
+#   - required: true | false (default: true)
+#   - enum: List of allowed values
+#   - pattern: Regex pattern (for strings)
+#   - min: Minimum value (for numbers)
+#   - max: Maximum value (for numbers)
+#   - min_length: Minimum string length
+#   - max_length: Maximum string length
+#   - items: Schema for array items
+#
+# =============================================================================
+
+version: "1.0"
+
+# Metadata about this contract configuration
+metadata:
+  name: "Custom Agent Endpoints"
+  description: "Example endpoint contracts for ARCP agents"
+  author: "ARCP Administrator"
+  created: "2026-01-29"
+
+# Endpoint definitions
+endpoints:
+  # =========================================================================
+  # HEALTH CHECK ENDPOINT (Required)
+  # =========================================================================
+  - path: "/health"
+    method: "GET"
+    timeout: 3
+    required: true
+    expected_status: [200]
+    description: "Basic health check - agent must return healthy status"
+    
+    required_fields:
+      - status
+      - agent_id
+    
+    field_validations:
+      status:
+        type: string
+        enum: ["healthy", "degraded", "unhealthy"]
+        description: "Current health status of the agent"
+      
+      agent_id:
+        type: string
+        pattern: "^[a-zA-Z0-9_-]{3,64}$"
+        description: "Unique identifier matching registration"
+      
+      version:
+        type: string
+        required: false
+        description: "Agent software version"
+      
+      uptime:
+        type: integer
+        required: false
+        min: 0
+        description: "Uptime in seconds"
+
+  # =========================================================================
+  # DETAILED HEALTH ENDPOINT (Required)
+  # =========================================================================
+  - path: "/health/detailed"
+    method: "GET"
+    timeout: 5
+    required: true
+    expected_status: [200]
+    description: "Detailed health with capabilities and resource usage"
+    
+    required_fields:
+      - status
+      - agent_id
+      - capabilities
+    
+    field_validations:
+      status:
+        type: string
+        enum: ["healthy", "degraded", "unhealthy"]
+      
+      agent_id:
+        type: string
+      
+      capabilities:
+        type: array
+        description: "List of agent capabilities"
+        items:
+          type: string
+      
+      active_connections:
+        type: integer
+        required: false
+        min: 0
+        description: "Number of active client connections"
+      
+      memory_usage:
+        type: string
+        required: false
+        pattern: "^\\d+%$"
+        description: "Memory usage percentage (e.g., '45%')"
+      
+      cpu_usage:
+        type: string
+        required: false
+        pattern: "^\\d+%$"
+        description: "CPU usage percentage (e.g., '30%')"
+      
+      dependencies:
+        type: object
+        required: false
+        description: "Health status of agent dependencies"
+
+  # =========================================================================
+  # METRICS ENDPOINT (Optional - failures are warnings)
+  # =========================================================================
+  - path: "/metrics"
+    method: "GET"
+    timeout: 3
+    required: false  # Optional endpoint - failures become warnings
+    expected_status: [200]
+    description: "Metrics endpoint - accepts JSON or Prometheus format"
+    
+    required_fields:
+      - requests_total
+    
+    field_validations:
+      requests_total:
+        type: integer
+        min: 0
+        description: "Total requests processed"
+      
+      requests_success:
+        type: integer
+        required: false
+        min: 0
+      
+      requests_failed:
+        type: integer
+        required: false
+        min: 0
+      
+      avg_response_time_ms:
+        type: number
+        required: false
+        min: 0
+        description: "Average response time in milliseconds"
+      
+      active_users:
+        type: integer
+        required: false
+        min: 0
+
+  # =========================================================================
+  # CONNECTION NOTIFY ENDPOINT (Required)
+  # =========================================================================
+  - path: "/connection/notify"
+    method: "POST"
+    timeout: 5
+    required: true
+    expected_status: [200, 201]
+    description: "Notification endpoint for client connections"
+    
+    # Test request body sent during validation
+    request_body:
+      user_id: "validation-test-user"
+      user_endpoint: "https://validation.arcp.test"
+      user_info:
+        test: true
+        validation: true
+    
+    required_fields:
+      - status
+      - agent_id
+    
+    field_validations:
+      status:
+        type: string
+        enum: ["ready", "requirements_needed", "rejected"]
+        description: "Connection readiness status"
+      
+      agent_id:
+        type: string
+      
+      requirements:
+        type: object
+        required: false
+        description: "Any requirements for the connection"
+      
+      message:
+        type: string
+        required: false
+        description: "Optional message to the client"
+
+# =============================================================================
+# CUSTOM ENDPOINT EXAMPLES
+# =============================================================================
+# Below are examples of custom endpoints you can add for your specific use case.
+# Uncomment and modify as needed.
+
+#   # Custom API endpoint
+#   - path: "/api/v1/status"
+#     method: "GET"
+#     timeout: 10
+#     required: true
+#     expected_status: [200]
+#     description: "Custom status endpoint"
+#     
+#     required_fields:
+#       - online
+#       - mode
+#     
+#     field_validations:
+#       online:
+#         type: boolean
+#       mode:
+#         type: string
+#         enum: ["production", "maintenance", "debug"]
+#       last_sync:
+#         type: string
+#         required: false
+#         pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+#         description: "ISO 8601 timestamp"
+
+#   # Webhook registration endpoint
+#   - path: "/webhooks/register"
+#     method: "POST"
+#     timeout: 10
+#     required: false
+#     expected_status: [200, 201, 202]
+#     description: "Register a webhook"
+#     
+#     request_body:
+#       url: "https://test.example.com/webhook"
+#       events: ["message", "status_change"]
+#     
+#     required_fields:
+#       - webhook_id
+#       - registered
+#     
+#     field_validations:
+#       webhook_id:
+#         type: string
+#         pattern: "^[a-f0-9-]{36}$"
+#         description: "UUID of the registered webhook"
+#       registered:
+#         type: boolean
+
+#   # Custom data endpoint with nested objects
+#   - path: "/api/v1/data"
+#     method: "GET"
+#     timeout: 15
+#     required: false
+#     
+#     required_fields:
+#       - data
+#       - pagination
+#     
+#     field_validations:
+#       data:
+#         type: array
+#         items:
+#           type: object
+#       pagination:
+#         type: object
+#       pagination.page:
+#         type: integer
+#         min: 1
+#       pagination.per_page:
+#         type: integer
+#         min: 1
+#         max: 100
+#       pagination.total:
+#         type: integer
+#         min: 0

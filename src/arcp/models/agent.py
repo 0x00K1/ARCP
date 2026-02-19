@@ -3,7 +3,7 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 from pydantic import field_validator as validator
@@ -486,6 +486,10 @@ class AgentRegistration(BaseModel):
         None, description="Agent requirements schema"
     )
     policy_tags: Optional[List[str]] = Field(None, description="Policy tags")
+    ai_context: Optional[str] = Field(
+        None,
+        description="AI Context: AI-readable information including agent's endpoints, API schemas, parameters, response formats, orchestration patterns, integration guidelines, and any details that help AI systems understand how to effectively integrate and use this agent. This field is specifically for AI consumption, not for human display.",
+    )
 
     @validator("name")
     def validate_name(cls, v):
@@ -739,6 +743,19 @@ class AgentRegistration(BaseModel):
                     validated_tags.append(tag)
         return validated_tags
 
+    @validator("ai_context")
+    def validate_ai_context(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("ai_context must be a string")
+        v = v.strip()
+        if not v:
+            return None  # Empty strings are treated as None
+        if len(v) > 5000:
+            raise ValueError("ai_context too long (max 5000 characters)")
+        return v
+
 
 class RegistrationResponse(BaseModel):
     """Response model for agent registration"""
@@ -866,6 +883,7 @@ class AgentInfo(BaseModel):
     rate_limit: Optional[int] = None
     requirements: Optional[Union[AgentRequirements, Dict[str, Any], str]] = None
     policy_tags: Optional[List[str]] = None
+    ai_context: Optional[str] = None
 
     # System/operational fields
     status: str  # "alive", "dead"
@@ -1071,6 +1089,78 @@ class HeartbeatResponse(BaseModel):
 
     class Config:
         json_encoders = {datetime: lambda dt: dt.isoformat()}
+
+
+class AgentInstance(BaseModel):
+    """
+    Represents a single running instance of an agent.
+
+    Supports horizontal scaling where one agent_id can have multiple
+    instances running on different nodes/containers.
+    """
+
+    agent_id: str = Field(..., description="Agent ID this instance belongs to")
+    instance_id: str = Field(..., description="Unique instance identifier (UUID)")
+    node_id: Optional[str] = Field(
+        None, description="Node/host/container identifier where instance is running"
+    )
+    started_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When this instance started"
+    )
+    last_seen: datetime = Field(
+        default_factory=datetime.utcnow, description="Last heartbeat timestamp"
+    )
+    version: str = Field(..., description="Agent version for this instance")
+    status: Literal["healthy", "degraded", "unhealthy"] = Field(
+        default="healthy", description="Current health status of this instance"
+    )
+
+    class Config:
+        json_encoders = {datetime: lambda dt: dt.isoformat()}
+        json_schema_extra = {
+            "example": {
+                "agent_id": "security-scanner",
+                "instance_id": "inst-abc123-def456-789",
+                "node_id": "k8s-node-01",
+                "started_at": "2026-01-27T09:00:00Z",
+                "last_seen": "2026-01-27T10:30:15Z",
+                "version": "2.1.0",
+                "status": "healthy",
+            }
+        }
+
+
+class HeartbeatRequest(BaseModel):
+    """
+    Enhanced heartbeat request with instance tracking.
+
+    Agents send this to indicate they are alive and to update
+    their instance-level status.
+    """
+
+    agent_id: str = Field(..., description="Agent identifier")
+    instance_id: str = Field(..., description="Instance identifier (UUID)")
+    ts: datetime = Field(
+        default_factory=datetime.utcnow, description="Timestamp of heartbeat"
+    )
+    seq: Optional[int] = Field(
+        None, description="Sequence number for ordering (monotonically increasing)"
+    )
+    status: Literal["healthy", "degraded", "unhealthy"] = Field(
+        default="healthy", description="Current instance health status"
+    )
+
+    class Config:
+        json_encoders = {datetime: lambda dt: dt.isoformat()}
+        json_schema_extra = {
+            "example": {
+                "agent_id": "security-scanner",
+                "instance_id": "inst-abc123-def456-789",
+                "ts": "2026-01-27T10:30:15Z",
+                "seq": 1234,
+                "status": "healthy",
+            }
+        }
 
 
 class TokenData(BaseModel):

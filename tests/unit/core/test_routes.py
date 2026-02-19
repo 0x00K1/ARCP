@@ -63,7 +63,7 @@ class TestRootEndpoint:
 
         assert isinstance(result, dict)
         assert result["service"] == "ARCP"
-        assert result["version"] == "2.0.3"
+        assert result["version"] == "2.1.0"
         assert result["status"] == "healthy"
         assert result["dashboard"] == "/dashboard"
         assert result["docs"] == "/docs"
@@ -382,8 +382,12 @@ class TestRouteRegistration:
     @patch("src.arcp.core.routes.dashboard")
     @patch("src.arcp.core.routes.health")
     @patch("src.arcp.core.routes.public")
+    @patch("src.arcp.core.routes.well_known")
+    @patch("src.arcp.core.routes.security")
     def test_register_api_routes(
         self,
+        mock_security,
+        mock_well_known,
         mock_public,
         mock_health,
         mock_dashboard,
@@ -402,13 +406,15 @@ class TestRouteRegistration:
             mock_dashboard,
             mock_health,
             mock_public,
+            mock_well_known,
+            mock_security,
         ]:
             mock_module.router = MagicMock()
 
         register_api_routes(mock_app)
 
-        # Should include 6 routers
-        assert mock_app.include_router.call_count == 6
+        # Should include 8 routers
+        assert mock_app.include_router.call_count == 8
 
         calls = mock_app.include_router.call_args_list
 
@@ -441,6 +447,15 @@ class TestRouteRegistration:
         assert calls[5][0][0] == mock_public.router
         assert calls[5][1]["prefix"] == "/public"
         assert calls[5][1]["tags"] == ["public"]
+
+        # Check well-known router (no prefix, serves at /.well-known)
+        assert calls[6][0][0] == mock_well_known.router
+        assert calls[6][1]["tags"] == ["well-known"]
+
+        # Check security router
+        assert calls[7][0][0] == mock_security.router
+        assert calls[7][1]["prefix"] == "/security"
+        assert calls[7][1]["tags"] == ["security"]
 
     def test_register_basic_routes_app_type(self):
         """Test that register_basic_routes expects FastAPI app."""

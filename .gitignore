@@ -239,3 +239,6 @@ staging.env
 # Safety scans
 .safety-project.ini
 scan.json
+
+# Endpoint contracts
+endpoint_contracts.yaml

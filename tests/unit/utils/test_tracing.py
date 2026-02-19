@@ -70,23 +70,28 @@ class TestTracingInitialization:
         mock_trace.get_tracer.return_value = mock_tracer
 
         with patch("src.arcp.utils.tracing._setup_auto_instrumentation") as mock_setup:
-            initialize_tracing()
+            with patch(
+                "src.arcp.utils.tracing._check_endpoint_connectivity"
+            ) as mock_check:
+                mock_check.return_value = False  # No remote exporters available
 
-            # Verify resource creation
-            mock_resource_cls.create.assert_called_once()
+                initialize_tracing()
 
-            # Verify provider creation with sampler
-            mock_sampler_cls.assert_called_once_with(0.1)
-            mock_provider_cls.assert_called_once_with(
-                resource=mock_resource, sampler=mock_sampler
-            )
+                # Verify resource creation
+                mock_resource_cls.create.assert_called_once()
 
-            # Verify provider setup
-            mock_trace.set_tracer_provider.assert_called_once_with(mock_provider)
-            mock_trace.get_tracer.assert_called_once()
+                # Verify provider creation with sampler
+                mock_sampler_cls.assert_called_once_with(0.1)
+                mock_provider_cls.assert_called_once_with(
+                    resource=mock_resource, sampler=mock_sampler
+                )
 
-            # Verify auto instrumentation
-            mock_setup.assert_called_once()
+                # Verify provider setup
+                mock_trace.set_tracer_provider.assert_called_once_with(mock_provider)
+                mock_trace.get_tracer.assert_called_once()
+
+                # Verify auto instrumentation
+                mock_setup.assert_called_once()
 
     @patch("src.arcp.utils.tracing.config")
     @patch("src.arcp.utils.tracing.JaegerExporter")
@@ -128,23 +133,29 @@ class TestTracingInitialization:
                         with patch(
                             "src.arcp.utils.tracing._setup_auto_instrumentation"
                         ):
-                            mock_provider = MagicMock()
-                            mock_provider_cls.return_value = mock_provider
+                            with patch(
+                                "src.arcp.utils.tracing._check_endpoint_connectivity"
+                            ) as mock_check:
+                                mock_check.return_value = True  # Endpoint is reachable
+                                mock_provider = MagicMock()
+                                mock_provider_cls.return_value = mock_provider
 
-                            initialize_tracing()
+                                initialize_tracing()
 
-                            # Verify Jaeger exporter configuration
-                            mock_jaeger_cls.assert_called_once_with(
-                                agent_host_name="localhost",
-                                agent_port=6831,
-                                collector_endpoint="http://jaeger:14268/api/traces",
-                            )
+                                # Verify Jaeger exporter configuration
+                                mock_jaeger_cls.assert_called_once_with(
+                                    agent_host_name="localhost",
+                                    agent_port=6831,
+                                    collector_endpoint="http://jaeger:14268/api/traces",
+                                )
 
-                            # Verify processor and provider setup
-                            mock_processor_cls.assert_called_once_with(mock_exporter)
-                            mock_provider.add_span_processor.assert_called_once_with(
-                                mock_processor
-                            )
+                                # Verify processor and provider setup
+                                mock_processor_cls.assert_called_once_with(
+                                    mock_exporter
+                                )
+                                mock_provider.add_span_processor.assert_called_once_with(
+                                    mock_processor
+                                )
 
     @patch("src.arcp.utils.tracing.config")
     @patch("src.arcp.utils.tracing.OTLPSpanExporter")
@@ -173,31 +184,37 @@ class TestTracingInitialization:
                             with patch(
                                 "src.arcp.utils.tracing.BatchSpanProcessor"
                             ) as mock_processor_cls:
-                                mock_provider = MagicMock()
-                                mock_provider_cls.return_value = mock_provider
-                                mock_processor = MagicMock()
-                                mock_processor_cls.return_value = mock_processor
+                                with patch(
+                                    "src.arcp.utils.tracing._check_endpoint_connectivity"
+                                ) as mock_check:
+                                    mock_check.return_value = (
+                                        True  # Endpoint is reachable
+                                    )
+                                    mock_provider = MagicMock()
+                                    mock_provider_cls.return_value = mock_provider
+                                    mock_processor = MagicMock()
+                                    mock_processor_cls.return_value = mock_processor
 
-                                initialize_tracing()
+                                    initialize_tracing()
 
-                                # Verify OTLP exporter configuration
-                                mock_otlp_cls.assert_called_once_with(
-                                    endpoint="http://otel-collector:4317",
-                                    insecure=True,
-                                )
+                                    # Verify OTLP exporter configuration
+                                    mock_otlp_cls.assert_called_once_with(
+                                        endpoint="http://otel-collector:4317",
+                                        insecure=True,
+                                    )
 
-                                # Verify processor setup
-                                mock_processor_cls.assert_called_once_with(
-                                    mock_exporter
-                                )
-                                mock_provider.add_span_processor.assert_called_once_with(
-                                    mock_processor
-                                )
+                                    # Verify processor setup
+                                    mock_processor_cls.assert_called_once_with(
+                                        mock_exporter
+                                    )
+                                    mock_provider.add_span_processor.assert_called_once_with(
+                                        mock_processor
+                                    )
 
     @patch("src.arcp.utils.tracing.config")
     @patch("src.arcp.utils.tracing.ConsoleSpanExporter")
     def test_initialize_tracing_console_fallback(self, mock_console_cls, mock_config):
-        """Test tracing initialization falls back to console exporter."""
+        """Test tracing initialization doesn't use console exporter when no remote exporters are available."""
         # Setup config with no remote exporters
         mock_config.TRACING_ENABLED = True
         mock_config.TRACE_SERVICE_NAME = "test-service"
@@ -220,16 +237,21 @@ class TestTracingInitialization:
                             with patch(
                                 "src.arcp.utils.tracing.BatchSpanProcessor"
                             ) as mock_processor_cls:
-                                mock_provider = MagicMock()
-                                mock_provider_cls.return_value = mock_provider
+                                with patch(
+                                    "src.arcp.utils.tracing._check_endpoint_connectivity"
+                                ) as mock_check:
+                                    mock_check.return_value = (
+                                        False  # No endpoints reachable
+                                    )
+                                    mock_provider = MagicMock()
+                                    mock_provider_cls.return_value = mock_provider
 
-                                initialize_tracing()
+                                    initialize_tracing()
 
-                                # Should use console exporter as fallback
-                                mock_console_cls.assert_called_once()
-                                mock_processor_cls.assert_called_once_with(
-                                    mock_exporter
-                                )
+                                    # Should NOT use console exporter (new implementation)
+                                    mock_console_cls.assert_not_called()
+                                    # And no processor should be added since no exporters
+                                    mock_processor_cls.assert_not_called()
 
     @patch("src.arcp.utils.tracing.config")
     def test_initialize_tracing_exception_handling(self, mock_config):
@@ -746,14 +768,18 @@ class TestTracingEdgeCases:
                         with patch(
                             "src.arcp.utils.tracing._setup_auto_instrumentation"
                         ):
+                            with patch(
+                                "src.arcp.utils.tracing._check_endpoint_connectivity"
+                            ) as mock_check:
+                                mock_check.return_value = False  # Health check fails
 
-                            mock_exporter = MagicMock()
-                            mock_jaeger.return_value = mock_exporter
+                                mock_exporter = MagicMock()
+                                mock_jaeger.return_value = mock_exporter
 
-                            initialize_tracing()
+                                initialize_tracing()
 
-                            # Should still create Jaeger exporter despite health check failure
-                            mock_jaeger.assert_called_once()
+                                # Should NOT create Jaeger exporter when health check fails
+                                mock_jaeger.assert_not_called()
 
 
 @pytest.mark.unit

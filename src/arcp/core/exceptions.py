@@ -291,6 +291,44 @@ class ARCPProblemTypes:
         "default_status": 403,
     }
 
+    # DPoP-related problems
+    DPOP_REQUIRED = {
+        "type": f"{BASE_URI}/dpop-required",
+        "title": "DPoP Proof Required",
+        "default_status": 401,
+    }
+
+    DPOP_INVALID = {
+        "type": f"{BASE_URI}/dpop-invalid",
+        "title": "Invalid DPoP Proof",
+        "default_status": 401,
+    }
+
+    DPOP_BINDING_MISMATCH = {
+        "type": f"{BASE_URI}/dpop-binding-mismatch",
+        "title": "DPoP Key Mismatch",
+        "default_status": 401,
+    }
+
+    TOKEN_NOT_DPOP_BOUND = {
+        "type": f"{BASE_URI}/token-not-dpop-bound",
+        "title": "Token Not DPoP Bound",
+        "default_status": 401,
+    }
+
+    # mTLS-related problems
+    MTLS_REQUIRED = {
+        "type": f"{BASE_URI}/mtls-required",
+        "title": "Client Certificate Required",
+        "default_status": 401,
+    }
+
+    MTLS_BINDING_MISMATCH = {
+        "type": f"{BASE_URI}/mtls-binding-mismatch",
+        "title": "Certificate Mismatch",
+        "default_status": 401,
+    }
+
     # PIN-related problems
     PIN_REQUIRED = {
         "type": f"{BASE_URI}/pin-required",
@@ -422,6 +460,12 @@ class ARCPProblemTypes:
         "type": f"{BASE_URI}/not-found",
         "title": "Resource Not Found",
         "default_status": 404,
+    }
+
+    TPR_DISABLED = {
+        "type": f"{BASE_URI}/tpr-disabled",
+        "title": "Three-Phase Registration Disabled",
+        "default_status": 503,
     }
 
 
@@ -561,6 +605,7 @@ def create_problem_detail(
     detail: Optional[str] = None,
     instance: Optional[str] = None,
     request: Optional[Request] = None,
+    status: Optional[int] = None,
     **extensions: Any,
 ) -> ProblemDetail:
     """
@@ -571,6 +616,7 @@ def create_problem_detail(
         detail: Specific detail message
         instance: Instance URI
         request: FastAPI Request object
+        status: HTTP status code override (defaults to problem_type default_status)
         **extensions: Additional custom fields
 
     Returns:
@@ -579,7 +625,7 @@ def create_problem_detail(
     return ProblemDetail.create_sanitized(
         type_uri=problem_type["type"],
         title=problem_type["title"],
-        status=problem_type["default_status"],
+        status=status if status is not None else problem_type["default_status"],
         detail=detail,
         instance=instance,
         request=request,
@@ -592,6 +638,7 @@ def create_problem_response(
     detail: Optional[str] = None,
     instance: Optional[str] = None,
     request: Optional[Request] = None,
+    status: Optional[int] = None,
     **extensions: Any,
 ) -> ProblemResponse:
     """
@@ -602,6 +649,7 @@ def create_problem_response(
         detail: Specific detail message
         instance: Instance URI
         request: FastAPI Request object
+        status: HTTP status code override (defaults to problem_type default_status)
         **extensions: Additional custom fields
 
     Returns:
@@ -612,6 +660,7 @@ def create_problem_response(
         detail=detail,
         instance=instance,
         request=request,
+        status=status,
         **extensions,
     )
     return ProblemResponse(problem)

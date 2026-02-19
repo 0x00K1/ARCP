@@ -8,14 +8,17 @@ ARG PYTHON_VERSION=3.11
 ARG POETRY_VERSION=1.6.1
 ARG USER_ID=1000
 ARG GROUP_ID=1000
-ARG ARCP_VERSION=2.0.3
+ARG ARCP_VERSION=2.1.0
 ARG ARCP_BUILD_DATE=2025-08-19
 ARG ARCP_HOST=0.0.0.0
 ARG ARCP_PORT=8001
 ARG ARCP_DEBUG=false
 ARG ARCP_LOGS_DIR=/app/logs
-ARG ENVIRONMENT=production
 ARG ARCP_DATA_DIR=/app/data
+ARG ARCP_TLS_CERT_DIR=/app/certs
+ARG ARCP_TLS_CERT_FILENAME=server.crt
+ARG ARCP_TLS_KEY_FILENAME=server.key
+ARG ENVIRONMENT=production
 ARG TZ=UTC
 ARG LOG_LEVEL=INFO
 
@@ -36,10 +39,18 @@ RUN apt-get update && \
         curl \
         gnupg \
         lsb-release \
-        tzdata && \
+        tzdata \
+        pkg-config \
+        gcc \
+        python3-dev \
+        libtss2-dev && \
     apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/* && \
     apt-get clean
+
+# Install Trivy for container scanning (v2.1.5)
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.58.0 && \
+    trivy --version
 
 # Create non-root user
 RUN groupadd -r arcp --gid=${GROUP_ID} && \
@@ -90,6 +101,9 @@ ARG ARCP_DEBUG=true
 ARG ARCP_LOGS_DIR=/app/logs
 ARG ENVIRONMENT=development
 ARG ARCP_DATA_DIR=/app/data
+ARG ARCP_TLS_CERT_DIR=/app/certs
+ARG ARCP_TLS_CERT_FILENAME=server.crt
+ARG ARCP_TLS_KEY_FILENAME=server.key
 ARG TZ=UTC
 ARG LOG_LEVEL=DEBUG
 
@@ -99,6 +113,7 @@ WORKDIR /app
 # Copy only necessary files
 COPY --chown=arcp:arcp src/ ./src/
 COPY --chown=arcp:arcp web/ ./web/
+COPY --chown=arcp:arcp config/ ./config/
 COPY --chown=arcp:arcp pyproject.toml ./
 COPY --chown=arcp:arcp requirements.txt ./
 
@@ -112,15 +127,16 @@ RUN set -e; \
     rm -rf $POETRY_CACHE_DIR
 
 # Ensure runtime directories exist and are writable
-RUN mkdir -p ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} && \
-    chown -R arcp:arcp ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} && \
-    chmod -R 755 ${ARCP_LOGS_DIR}
+RUN mkdir -p ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} /home/arcp/.cache/trivy && \
+    chown -R arcp:arcp ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} /home/arcp/.cache && \
+    chmod -R 755 ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} && \
+    chmod -R 775 /home/arcp/.cache
 
 # Configure timezone (must be done as root before user switch)
 ENV TZ=${TZ}
 RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
 
-# Ensure runtime directories exist and are writable
+# Set proper permissions
 RUN find /app -type f -name "*.py" -exec chmod 644 {} \; && \
     find /app -type d -exec chmod 755 {} \; && \
     chmod -R 700 ${ARCP_DATA_DIR} && \
@@ -135,13 +151,14 @@ ENV PYTHONPATH=/app/src \
     ARCP_PORT=${ARCP_PORT} \
     ARCP_DEBUG=${ARCP_DEBUG} \
     ARCP_LOGS_DIR=${ARCP_LOGS_DIR} \
-    ENVIRONMENT=${ENVIRONMENT} \
     ARCP_DATA_DIR=${ARCP_DATA_DIR} \
+    ARCP_TLS_CERT_DIR=${ARCP_TLS_CERT_DIR} \
+    ENVIRONMENT=${ENVIRONMENT} \
     LOG_LEVEL=${LOG_LEVEL}
 
-# Health check (port will be resolved at runtime)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${ARCP_PORT}/health || exit 1
+    CMD /usr/local/bin/health-check.sh
 
 # Default command
 CMD ["python", "-m", "arcp"]
@@ -158,8 +175,11 @@ ARG ARCP_HOST=0.0.0.0
 ARG ARCP_PORT=8001
 ARG ARCP_DEBUG=true
 ARG ARCP_LOGS_DIR=/app/logs
-ARG ENVIRONMENT=testing
 ARG ARCP_DATA_DIR=/app/data
+ARG ARCP_TLS_CERT_DIR=/app/certs
+ARG ARCP_TLS_CERT_FILENAME=server.crt
+ARG ARCP_TLS_KEY_FILENAME=server.key
+ARG ENVIRONMENT=testing
 ARG TZ=UTC
 ARG LOG_LEVEL=DEBUG
 
@@ -169,6 +189,7 @@ WORKDIR /app
 # Copy source code and test files
 COPY --chown=arcp:arcp src/ ./src/
 COPY --chown=arcp:arcp web/ ./web/
+COPY --chown=arcp:arcp config/ ./config/
 COPY --chown=arcp:arcp tests/ ./tests/
 COPY --chown=arcp:arcp examples/ ./examples/
 COPY --chown=arcp:arcp pyproject.toml ./
@@ -183,9 +204,11 @@ RUN set -e; \
     rm -rf $POETRY_CACHE_DIR
 
 # Ensure runtime directories exist and are writable
-RUN mkdir -p ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} && \
-    chown -R arcp:arcp ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} && \
-    chmod -R 755 ${ARCP_LOGS_DIR}
+RUN mkdir -p ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} /home/arcp/.cache/trivy && \
+    chown -R arcp:arcp ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} /home/arcp/.cache && \
+    chmod -R 775 ${ARCP_DATA_DIR} && \
+    chmod -R 755 ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} && \
+    chmod -R 775 /home/arcp/.cache
 
 # Configure timezone (must be done as root before user switch)
 ENV TZ=${TZ}
@@ -194,7 +217,7 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezo
 # Set proper permissions for testing environment
 RUN find /app -type f -name "*.py" -exec chmod 644 {} \; && \
     find /app -type d -exec chmod 755 {} \; && \
-    chmod -R 700 ${ARCP_DATA_DIR} && \
+    chmod -R 775 ${ARCP_DATA_DIR} && \
     chmod -R 777 ${ARCP_LOGS_DIR}
 
 # Switch to non-root user
@@ -206,15 +229,16 @@ ENV PYTHONPATH=/app/src \
     ARCP_PORT=${ARCP_PORT} \
     ARCP_DEBUG=${ARCP_DEBUG} \
     ARCP_LOGS_DIR=${ARCP_LOGS_DIR} \
-    ENVIRONMENT=${ENVIRONMENT} \
     ARCP_DATA_DIR=${ARCP_DATA_DIR} \
+    ARCP_TLS_CERT_DIR=${ARCP_TLS_CERT_DIR} \
+    ENVIRONMENT=${ENVIRONMENT} \
     LOG_LEVEL=${LOG_LEVEL}
 
-# Health check (port will be resolved at runtime)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${ARCP_PORT}/health || exit 1
+    CMD /usr/local/bin/health-check.sh
 
-# Default command for testing (can run tests or the application)
+# Default command for testing
 CMD ["python", "-m", "arcp"]
 
 # =================================
@@ -229,8 +253,11 @@ ARG ARCP_HOST=0.0.0.0
 ARG ARCP_PORT=8001
 ARG ARCP_DEBUG=false
 ARG ARCP_LOGS_DIR=/app/logs
-ARG ENVIRONMENT=production
 ARG ARCP_DATA_DIR=/app/data
+ARG ARCP_TLS_CERT_DIR=/app/certs
+ARG ARCP_TLS_CERT_FILENAME=server.crt
+ARG ARCP_TLS_KEY_FILENAME=server.key
+ARG ENVIRONMENT=production
 ARG TZ=UTC
 ARG LOG_LEVEL=INFO
 
@@ -240,6 +267,7 @@ WORKDIR /app
 # Copy only necessary files
 COPY --chown=arcp:arcp src/ ./src/
 COPY --chown=arcp:arcp web/ ./web/
+COPY --chown=arcp:arcp config/ ./config/
 COPY --chown=arcp:arcp pyproject.toml ./
 COPY --chown=arcp:arcp requirements.txt ./
 
@@ -250,23 +278,33 @@ RUN set -e; \
     for i in 1 2 3; do \
       poetry install --only=main --no-root -n && break || sleep 5; \
     done; \
+    # Install TPM support separately with fallback \
+    pip install tpm2-pytss || echo "TPM support installation failed (optional)"; \
     # Fallback: ensure critical OpenTelemetry dependencies are installed \
     pip install deprecated wrapt thrift importlib-metadata || true; \
     rm -rf $POETRY_CACHE_DIR
 
 # Ensure runtime directories exist and are writable
-RUN mkdir -p ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} && \
-    chown -R arcp:arcp ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} && \
-    chmod -R 755 ${ARCP_LOGS_DIR}
+RUN mkdir -p ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} /home/arcp/.cache/trivy && \
+    chown -R arcp:arcp ${ARCP_DATA_DIR} ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} /home/arcp/.cache && \
+    chmod -R 775 ${ARCP_DATA_DIR} && \
+    chmod -R 755 ${ARCP_LOGS_DIR} ${ARCP_TLS_CERT_DIR} && \
+    chmod -R 775 /home/arcp/.cache
 
 # Configure timezone (must be done as root before user switch)
 ENV TZ=${TZ}
 RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
 
+# Pre-download Trivy vulnerability database so scans don't need to download at runtime
+ENV CONTAINER_TRIVY_CACHE_DIR=/home/arcp/.cache/trivy
+RUN trivy image --download-db-only --cache-dir /home/arcp/.cache/trivy 2>/dev/null || \
+    echo "Trivy DB pre-download skipped (will download on first scan)"
+RUN chown -R arcp:arcp /home/arcp/.cache
+
 # Security hardening
 RUN find /app -type f -name "*.py" -exec chmod 644 {} \; && \
     find /app -type d -exec chmod 755 {} \; && \
-    chmod -R 700 ${ARCP_DATA_DIR} && \
+    chmod -R 775 ${ARCP_DATA_DIR} && \
     chmod -R 777 ${ARCP_LOGS_DIR}
 
 # Switch to non-root user
@@ -278,14 +316,15 @@ ENV PYTHONPATH=/app/src \
     ARCP_PORT=${ARCP_PORT} \
     ARCP_DEBUG=${ARCP_DEBUG} \
     ARCP_LOGS_DIR=${ARCP_LOGS_DIR} \
-    ENVIRONMENT=${ENVIRONMENT} \
     ARCP_DATA_DIR=${ARCP_DATA_DIR} \
+    ARCP_TLS_CERT_DIR=${ARCP_TLS_CERT_DIR} \
+    ENVIRONMENT=${ENVIRONMENT} \
     TZ=${TZ} \
     LOG_LEVEL=${LOG_LEVEL}
 
-# Health check (port will be resolved at runtime)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${ARCP_PORT}/health || exit 1
+    CMD /usr/local/bin/health-check.sh
 
 # Add labels for metadata
 LABEL org.opencontainers.image.title="ARCP" \
@@ -300,7 +339,7 @@ LABEL org.opencontainers.image.title="ARCP" \
       maintainer="Muhannad <01muhannad.a@gmail.com>"
 
 # Production command
-CMD sh -c "python -m uvicorn arcp.__main__:app --host ${ARCP_HOST} --port ${ARCP_PORT} --workers 1"
+CMD ["python", "-m", "arcp"]
 
 # =================================
 # Multi-arch build stage
@@ -311,32 +350,87 @@ FROM production as final
 ARG ARCP_HOST=0.0.0.0
 ARG ARCP_PORT=8001
 ARG ARCP_DATA_DIR=/app/data
+ARG ARCP_TLS_CERT_DIR=/app/certs
+ARG ARCP_TLS_CERT_FILENAME=server.crt
+ARG ARCP_TLS_KEY_FILENAME=server.key
 ARG LOG_LEVEL=INFO
 
-# Copy health check script with correct permissions (no root escalation needed) privesca :)
+# Health check script
 COPY --chmod=0755 --chown=arcp:arcp <<EOF /usr/local/bin/health-check.sh
 #!/bin/bash
 set -e
-
-# Check if the service is responding
-if curl -f -s http://localhost:${ARCP_PORT}/health > /dev/null; then
-    echo "Service is healthy"
-    exit 0
+if [ "\${ARCP_TLS_ENABLED:-false}" = "true" ]; then
+    curl -kf -s https://localhost:\${ARCP_PORT}/health > /dev/null
 else
-    echo "Service is unhealthy"
-    exit 1
+    curl -f -s http://localhost:\${ARCP_PORT}/health > /dev/null
 fi
 EOF
 
-# Enhanced health check
+# Entrypoint script
+COPY --chmod=0755 --chown=root:root <<EOF /usr/local/bin/docker-entrypoint.sh
+#!/bin/bash
+set -e
+
+echo "[INFO] Starting ARCP container..."
+echo "[INFO] Environment: \${ENVIRONMENT:-production}"
+echo "[INFO] TLS Enabled: \${ARCP_TLS_ENABLED:-false}"
+
+# Check data directory permissions
+if [ -d "\${ARCP_DATA_DIR}" ]; then
+    if ! touch \${ARCP_DATA_DIR}/.write_test 2>/dev/null; then
+        echo "[WARN] \${ARCP_DATA_DIR} is not writable"
+    else
+        rm -f \${ARCP_DATA_DIR}/.write_test
+        echo "[INFO] Data directory writable: \${ARCP_DATA_DIR}"
+    fi
+fi
+
+# Validate TLS configuration
+if [ "\${ARCP_TLS_ENABLED:-false}" = "true" ]; then
+    echo "[INFO] TLS enabled - validating certificates"
+    echo "[INFO] Certificate directory: \${ARCP_TLS_CERT_DIR}"
+    echo "[INFO] Certificate filename: \${ARCP_TLS_CERT_FILENAME:-server.crt}"
+    echo "[INFO] Key filename: \${ARCP_TLS_KEY_FILENAME:-server.key}"
+    
+    CERT_PATH="\${ARCP_TLS_CERT_DIR}/\${ARCP_TLS_CERT_FILENAME:-server.crt}"
+    KEY_PATH="\${ARCP_TLS_CERT_DIR}/\${ARCP_TLS_KEY_FILENAME:-server.key}"
+    
+    echo "[INFO] Full certificate path: \${CERT_PATH}"
+    echo "[INFO] Full key path: \${KEY_PATH}"
+    
+    if [ -f "\${CERT_PATH}" ] && [ -f "\${KEY_PATH}" ]; then
+        echo "[INFO] TLS certificates found"
+        echo "[INFO] Certificate file size: \$(ls -lh \${CERT_PATH} | awk '{print \$5}')"
+        echo "[INFO] Key file size: \$(ls -lh \${KEY_PATH} | awk '{print \$5}')"
+    else
+        echo "[ERROR] TLS certificates not found:"
+        echo "  Cert: \${CERT_PATH} (exists: \$([ -f \"\${CERT_PATH}\" ] && echo \"yes\" || echo \"no\"))"
+        echo "  Key: \${KEY_PATH} (exists: \$([ -f \"\${KEY_PATH}\" ] && echo \"yes\" || echo \"no\"))"
+        echo "[ERROR] Certificate directory contents:"
+        ls -la "\${ARCP_TLS_CERT_DIR}/" || echo "  Directory not accessible"
+        echo "[ERROR] Mount certificates to \${ARCP_TLS_CERT_DIR}/"
+        exit 1
+    fi
+else
+    echo "[INFO] TLS disabled - running HTTP only"
+fi
+
+echo "[INFO] Starting application..."
+exec "\$@"
+EOF
+
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD /usr/local/bin/health-check.sh
 
-# Volume for persistent data (will use runtime ARCP_DATA_DIR value)
+# Volume for persistent data
 VOLUME ["/app/data"]
 
 # Signal handling
 STOPSIGNAL SIGTERM
 
-# Default command with proper signal handling
-CMD sh -c "python -m uvicorn arcp.__main__:app --host ${ARCP_HOST} --port ${ARCP_PORT} --workers 1 --access-log --log-level ${LOG_LEVEL}"
+# Entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
+# Default command
+CMD ["python", "-m", "arcp"]

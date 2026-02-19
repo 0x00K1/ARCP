@@ -5,17 +5,19 @@ This module contains core application routes including root, dashboard,
 metrics, and other utility endpoints.
 """
 
+import logging
 from pathlib import Path
+
+from fastapi import FastAPI, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 try:
     from importlib import resources
 except ImportError:
     resources = None
-from fastapi import FastAPI, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
 
-from ..api import agents, auth, dashboard, health, public, tokens
+from ..api import agents, auth, dashboard, health, public, security, tokens, well_known
 from ..services.metrics import get_metrics_service
 from ..utils.api_protection import RequireAdmin, RequireMetricsScraper, RequirePublic
 
@@ -101,7 +103,7 @@ async def root(_: dict = RequirePublic):
     """
     return {
         "service": "ARCP",
-        "version": "2.0.3",
+        "version": "2.1.0",
         "status": "healthy",
         "dashboard": "/dashboard",
         "docs": "/docs",
@@ -133,7 +135,7 @@ async def dashboard_page(_: dict = RequirePublic):
                     return f.read()
             except Exception as e:
                 # Log the error and re-raise for proper error handling
-                print(f"Error reading dashboard template: {e}")
+                logging.error(f"Error reading dashboard template: {e}")
                 raise
 
     # Fallback error page
@@ -205,9 +207,9 @@ def setup_static_files(app: FastAPI):
         if static_path.exists():
             app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
         else:
-            print(f"Warning: Static directory not found at {static_path}")
+            logging.warning(f"Static directory not found at {static_path}")
     else:
-        print("Warning: Web directory not found, static files will not be served")
+        logging.warning("Web directory not found, static files will not be served")
 
 
 def register_basic_routes(app: FastAPI):
@@ -239,3 +241,5 @@ def register_api_routes(app):
     app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
     app.include_router(health.router, tags=["health"])
     app.include_router(public.router, prefix="/public", tags=["public"])
+    app.include_router(well_known.router, tags=["well-known"])
+    app.include_router(security.router, prefix="/security", tags=["security"])

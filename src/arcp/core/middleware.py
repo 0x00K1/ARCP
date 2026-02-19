@@ -171,7 +171,7 @@ async def rate_limiting_middleware(request: Request, call_next):
         if not allowed:
             # Log security event for rate limit hit
             await log_security_event(
-                "rate_limit_exceeded",
+                "policy.rate_limit_exceeded",
                 f"Rate limit exceeded for {attempt_type} endpoint: {reason}",
                 severity="WARNING",
                 request=request,
@@ -274,7 +274,7 @@ async def rate_limiting_middleware(request: Request, call_next):
         if lockout_duration:
             # Log lockout event
             await log_security_event(
-                "client_locked_out",
+                "policy.client_locked_out",
                 f"Client locked out for {lockout_duration}s due to repeated {attempt_type} failures",
                 severity="ERROR",
                 request=request,
@@ -287,8 +287,16 @@ async def rate_limiting_middleware(request: Request, call_next):
             # Log failed attempt
             attempt_info = rate_limiter.get_attempt_info(client_id, attempt_type)
             if attempt_info:
+                # Map attempt types to proper event type values
+                attempt_event_map = {
+                    "login": "attempt.login_failed",
+                    "pin": "attempt.pin_failed",
+                }
+                event_type = attempt_event_map.get(
+                    attempt_type, "attempt.general_failed"
+                )
                 await log_security_event(
-                    f"{attempt_type}_attempt_failed",
+                    event_type,
                     f"Failed {attempt_type} attempt ({attempt_info.count}/{rate_limiter.max_attempts})",
                     severity="WARNING",
                     request=request,
@@ -393,8 +401,7 @@ async def security_headers_middleware(request: Request, call_next):
         "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
         "Pragma": "no-cache",
         "Expires": "0",
-        # Try to remove server information
-        "Server": "ARCP/2.0.3",
+        # Server header removed - let reverse proxy (NGINX) or ASGI server (Uvicorn) handle it
     }
 
     # Add HSTS for HTTPS environments
@@ -590,11 +597,15 @@ def get_allowed_origins() -> List[str]:
     # In production, use configured origins or default secure list
     allowed_origins = getattr(config, "ALLOWED_ORIGINS", None)
     if allowed_origins:
-        return (
-            allowed_origins.split(",")
-            if isinstance(allowed_origins, str)
-            else allowed_origins
-        )
+        if isinstance(allowed_origins, str):
+            # Parse comma-separated list with proper whitespace handling
+            return [
+                origin.strip()
+                for origin in allowed_origins.split(",")
+                if origin.strip()
+            ]
+        else:
+            return allowed_origins
 
     # Fallback: very restrictive for security
     return ["https://yourdomain.com"]
@@ -674,11 +685,11 @@ def get_trusted_hosts() -> List[str]:
     # In production, use configured hosts
     trusted_hosts = getattr(config, "TRUSTED_HOSTS", None)
     if trusted_hosts:
-        return (
-            trusted_hosts.split(",")
-            if isinstance(trusted_hosts, str)
-            else trusted_hosts
-        )
+        if isinstance(trusted_hosts, str):
+            # Parse comma-separated list with proper whitespace handling
+            return [host.strip() for host in trusted_hosts.split(",") if host.strip()]
+        else:
+            return trusted_hosts
 
     # Fallback: your production domain
     return ["yourdomain.com", "*.yourdomain.com"]
@@ -695,6 +706,19 @@ def setup_middleware(app):
     Middleware is applied in reverse order (last added = first executed)
     """
     global _middleware_setup_logged
+
+    # 0. Idempotency middleware (for TPR endpoints - safe retries)
+    # This should be early in the chain to intercept duplicate requests
+    from ..utils.idempotency import IdempotencyMiddleware
+
+    if config.FEATURE_THREE_PHASE:
+        app.add_middleware(
+            IdempotencyMiddleware,
+            protected_paths=[
+                "/agents/register",
+                "/auth/agent/validate_compliance",
+            ],
+        )
 
     # 1. Trusted Host middleware (first layer of protection)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_trusted_hosts())
@@ -734,6 +758,7 @@ def setup_middleware(app):
             "X-Session-Pin",
             "X-Requested-With",
             "X-CSRF-Token",
+            "Idempotency-Key",  # TPR idempotency support
         ],
         expose_headers=[
             "X-Response-Time",
@@ -741,6 +766,7 @@ def setup_middleware(app):
             "X-RateLimit-Limit",
             "X-RateLimit-Remaining",
             "X-RateLimit-Reset",
+            "X-Idempotent-Replayed",  # Indicate cached response
         ],
         max_age=600,  # Cache preflight requests for 10 minutes
     )
@@ -794,7 +820,7 @@ async def require_rate_limit_check(request: Request, attempt_type: str = "genera
     if not allowed:
         # Log security event
         await log_security_event(
-            "rate_limit_exceeded",
+            "policy.rate_limit_exceeded",
             f"Rate limit exceeded for {attempt_type}: {reason}",
             severity="WARNING",
             request=request,
@@ -852,7 +878,7 @@ async def record_auth_attempt(
     if lockout_duration:
         # Log lockout event
         await log_security_event(
-            "client_locked_out",
+            "policy.client_locked_out",
             f"Client locked out for {lockout_duration}s due to repeated {attempt_type} failures",
             severity="ERROR",
             request=request,

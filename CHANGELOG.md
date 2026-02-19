@@ -30,15 +30,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced Discovery**: Advanced search filters, categories, and recommendation engine
 - **Enhanced Audit**: Comprehensive security event logging and monitoring
 
-## [2.1.x] [Unreleased]
+## [2.1.0] - 2026-02-16
 
-### Planned - Three-Phase Registration (TPR)
-- **Enhanced Security**: Proof-of-Possession tokens with DPoP and mTLS support
-- **Agent Validation**: Asynchronous compliance and security checks before registration
-- **Single-Use Tokens**: Atomic token consumption preventing replay attacks
-- **Instance Tracking**: Multi-instance agent support with individual liveness monitoring
-- **Improved AuthN/AuthZ**: Hierarchical token system (temp → validated → access)
-- **Idempotency Support**: Safe retry mechanisms with correlation IDs
+### Added - Three-Phase Registration (TPR)
+- **Three-Phase Registration Protocol**: Enhanced agent onboarding with validation pipeline
+  - Phase 1: Temporary token issuance with rate limiting
+  - Phase 2: Asynchronous compliance and security validation
+  - Phase 3: Production token with cryptographic binding
+- **DPoP Support (RFC 9449)**: Demonstrating Proof-of-Possession for token security
+  - JWT-based proof generation and validation
+  - JWK thumbprint binding (cnf claim)
+  - Replay attack prevention with jti tracking
+  - Token theft mitigation through cryptographic binding
+- **mTLS Client Authentication**: Mutual TLS certificate-based authentication
+  - X.509 client certificate validation
+  - SPKI hash binding for token security
+  - OCSP and CRL revocation checking
+  - Certificate rotation support
+- **SBOM Verification**: Software Bill of Materials vulnerability scanning
+  - SPDX and CycloneDX format support
+  - Real-time vulnerability checking via OSV database
+  - Severity-based filtering and compliance verification
+  - Automated dependency scanning
+- **Container Security Scanning**: Image vulnerability detection
+  - Trivy and Grype scanner integration
+  - CVE database synchronization
+  - Secret detection in container images
+  - License compliance checking
+- **Software Attestation**: Challenge-response integrity verification
+  - Code and configuration measurement
+  - Cryptographic signature validation
+  - Periodic re-attestation support
+  - Tamper detection capabilities
+- **JWKS Management**: JSON Web Key Set for asymmetric signing
+  - RS256/ES256 algorithm support
+  - Automatic key rotation with configurable intervals
+  - Multi-key support for graceful rollover
+  - Public key distribution via /.well-known/jwks.json
+
+### Security
+- **Enhanced Token Security**: DPoP and mTLS binding preventing token theft
+- **Zero-Trust Validation**: Comprehensive pre-registration security checks
+- **Single-Use Tokens**: Atomic token consumption with replay protection
+- **Instance Tracking**: Per-instance authentication and liveness monitoring
+- **Asymmetric Cryptography**: JWKS-based token signing for enhanced security
+- **Certificate Management**: Complete mTLS lifecycle with rotation support
+
+### Infrastructure
+- **NGINX Reverse Proxy**: Production-ready reverse proxy integration
+  - TLS termination and client certificate validation
+  - HTTP/2 support with WebSocket upgrade
+  - Load balancing and connection pooling
+  - Security header injection
+- **Enhanced Docker Stack**: Complete containerized deployment
+  - NGINX container with mTLS configuration
+  - Certificate volume mounting
+  - Network isolation and security
+  - Production-ready compose configuration
+
+### Documentation
+- **Comprehensive Security Guides**: Complete documentation for all v2.1.0 features
+  - Three-Phase Registration guide with flow diagrams
+  - DPoP implementation guide with RFC 9449 compliance
+  - mTLS setup and certificate management
+  - SBOM verification and vulnerability scanning
+  - Container security scanning integration
+  - Software attestation implementation
+  - JWKS management and key rotation
+- **Mermaid Diagrams**: All documentation includes interactive flow diagrams
+- **Configuration Examples**: Production-ready configuration templates
+- **Troubleshooting Guides**: Common issues and solutions for each feature
+
+### Developer Experience
+- **Enhanced Client Examples**: DPoP and mTLS client implementations
+- **Security Best Practices**: Comprehensive security guidelines
+- **Migration Guides**: Upgrade path from v2.0.x to v2.1.0
+- **API Extensions**: New TPR endpoints with OpenAPI documentation
 
 ## [2.0.0] - 2025-08-18
 

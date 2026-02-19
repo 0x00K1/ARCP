@@ -128,7 +128,8 @@ class ARCPClient:
         retry_attempts: int = 3,
         retry_delay: float = 1.0,
         max_retry_delay: float = 60.0,
-        user_agent: str = "ARCPClient/2.0.3",
+        user_agent: str = "ARCPClient/2.1.0",
+        verify_ssl: bool = True,
     ):
         """
         Initialize ARCP client.
@@ -140,6 +141,7 @@ class ARCPClient:
             retry_delay: Initial delay between retries
             max_retry_delay: Maximum delay between retries
             user_agent: User agent string for requests
+            verify_ssl: Whether to verify SSL certificates (set False for self-signed certs)
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -148,6 +150,7 @@ class ARCPClient:
         self.retry_delay = retry_delay
         self.max_retry_delay = max_retry_delay
         self.user_agent = user_agent
+        self.verify_ssl = verify_ssl
 
         # Authentication state
         self._access_token: Optional[str] = None
@@ -175,6 +178,7 @@ class ARCPClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout),
+                verify=self.verify_ssl,
                 headers={
                     "User-Agent": self.user_agent,
                     "X-Client-Fingerprint": self._client_fingerprint,
@@ -340,7 +344,7 @@ class ARCPClient:
         self, agent_id: str, agent_type: str, agent_key: str
     ) -> str:
         """
-        Request temporary token for agent registration.
+        Request temporary token for agent registration (TPR Phase 1).
 
         Args:
             agent_id: Agent identifier
@@ -378,6 +382,291 @@ class ARCPClient:
 
         except Exception as e:
             raise AuthenticationError(f"Temporary token request failed: {e}")
+
+    async def validate_compliance(
+        self,
+        agent_id: str,
+        agent_type: str,
+        endpoint: str,
+        capabilities: List[str],
+        metadata: Optional[Dict[str, Any]] = None,
+        poll_timeout: float = 300.0,
+        poll_interval: float = 2.0,
+        sbom: Optional[str] = None,
+        sbom_signature: Optional[str] = None,
+        container_image: Optional[str] = None,
+        is_containerized: bool = False,
+        attestation: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Validate agent compliance for registration (TPR Phase 2).
+
+        This method performs endpoint validation and issues a validated token
+        that can be used for registration. Required when TPR is enabled.
+
+        The server returns 202 Accepted with a polling URL. This method
+        automatically polls until validation completes or times out.
+
+        Args:
+            agent_id: Agent identifier (must match temp token)
+            agent_type: Type of agent
+            endpoint: HTTP endpoint URL for the agent
+            capabilities: List of agent capabilities
+            metadata: Optional additional metadata
+            poll_timeout: Maximum time to wait for validation (seconds)
+            poll_interval: Time between polling requests (seconds)
+            sbom: SBOM content in CycloneDX/SPDX JSON format
+            sbom_signature: Optional JWS signature for SBOM
+            container_image: Container image reference
+            is_containerized: Whether agent runs in container
+            attestation: Attestation evidence data
+
+        Returns:
+            Validated token for registration
+
+        Raises:
+            RegistrationError: On validation failure
+            AuthenticationError: If no temp token available
+        """
+        if not self._access_token:
+            raise AuthenticationError(
+                "Temp token required for validation. Call request_temp_token first."
+            )
+
+        try:
+            # Build request payload
+            request_payload = {
+                "agent_id": agent_id,
+                "agent_type": agent_type,
+                "endpoint": endpoint,
+                "capabilities": capabilities,
+                "metadata": metadata or {},
+            }
+
+            # Add SBOM data if provided
+            if sbom:
+                request_payload["sbom"] = sbom
+                if sbom_signature:
+                    request_payload["sbom_signature"] = sbom_signature
+
+            # Add container info if provided
+            if container_image or is_containerized:
+                request_payload["is_containerized"] = is_containerized
+                if container_image:
+                    request_payload["container_image"] = container_image
+
+            # Add attestation data if provided
+            if attestation:
+                request_payload["attestation"] = attestation
+
+            response = await self._request(
+                "POST",
+                "/auth/agent/validate_compliance",
+                json_data=request_payload,
+            )
+
+            # Check if this is an async response (202 Accepted)
+            if response.get("status") == "pending" and response.get("validation_id"):
+                validation_id = response["validation_id"]
+                logger.info(
+                    f"Validation {validation_id} in progress, polling for result..."
+                )
+
+                # Poll for result
+                validated_token = await self._poll_validation_status(
+                    validation_id=validation_id,
+                    timeout=poll_timeout,
+                    interval=poll_interval,
+                )
+
+                if validated_token:
+                    self._access_token = validated_token
+                    self._token_expires_at = datetime.now() + timedelta(seconds=300)
+                    logger.info(f"Validation passed for agent {agent_id}")
+                    return validated_token
+                else:
+                    raise RegistrationError("Validation did not return a token")
+
+            # Legacy sync response (validated_token directly in response)
+            validated_token = response.get("validated_token")
+            if not validated_token:
+                raise RegistrationError("No validated token received")
+
+            # Update token to validated token for registration
+            self._access_token = validated_token
+            expires_in = response.get("expires_in", 300)  # 5 minutes
+            self._token_expires_at = datetime.now() + timedelta(seconds=expires_in)
+
+            logger.info(f"Validation passed for agent {agent_id}")
+            return validated_token
+
+        except httpx.HTTPStatusError as e:
+            # Handle specific validation errors
+            if e.response.status_code == 403:
+                error_detail = e.response.json().get("detail", "Validation failed")
+                raise RegistrationError(f"Agent validation failed: {error_detail}")
+            elif e.response.status_code == 503:
+                # TPR not enabled - return None to signal basic mode
+                logger.info("TPR not enabled on server, using basic registration")
+                return None
+            raise RegistrationError(f"Validation request failed: {e}")
+        except Exception as e:
+            if "feature_disabled" in str(e).lower() or "not enabled" in str(e).lower():
+                logger.info("TPR not enabled on server, using basic registration")
+                return None
+            raise RegistrationError(f"Agent validation failed: {e}")
+
+    async def _poll_validation_status(
+        self,
+        validation_id: str,
+        timeout: float = 300.0,
+        interval: float = 2.0,
+    ) -> Optional[str]:
+        """
+        Poll validation status until complete or timeout.
+
+        Args:
+            validation_id: Validation ID to poll
+            timeout: Maximum time to wait (seconds)
+            interval: Time between polls (seconds)
+
+        Returns:
+            Validated token if successful, None if failed
+
+        Raises:
+            RegistrationError: On validation failure or timeout
+        """
+        start_time = asyncio.get_event_loop().time()
+        poll_count = 0
+        last_progress = None
+
+        while True:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed >= timeout:
+                raise RegistrationError(
+                    f"Validation {validation_id} timed out after {timeout}s"
+                )
+
+            try:
+                poll_count += 1
+                response = await self._request(
+                    "GET",
+                    f"/auth/agent/validation/{validation_id}",
+                )
+
+                status = response.get("status")
+
+                if status == "passed":
+                    validated_token = response.get("validated_token")
+                    if validated_token:
+                        logger.info(
+                            f"Validation {validation_id} passed "
+                            f"(duration: {response.get('duration_ms', 0)}ms)"
+                        )
+                        return validated_token
+                    else:
+                        raise RegistrationError(
+                            "Validation passed but no token received"
+                        )
+
+                elif status == "failed":
+                    errors = response.get("errors", [])
+                    error_msgs = [e.get("message", str(e)) for e in errors]
+                    raise RegistrationError(
+                        f"Validation failed: {'; '.join(error_msgs) or 'Unknown error'}"
+                    )
+
+                elif status == "pending":
+                    # Extract progress information
+                    progress = response.get("progress")
+                    current_step = response.get("current_step")
+
+                    # Show progress if it changed or every 5 polls
+                    show_progress = progress != last_progress or poll_count % 5 == 1
+
+                    if show_progress:
+                        if current_step:
+                            logger.info(
+                                f"   Validation in progress: {current_step} "
+                                f"({elapsed:.1f}s elapsed)"
+                            )
+                        elif progress:
+                            logger.info(
+                                f"   Validation progress: {progress} "
+                                f"({elapsed:.1f}s elapsed)"
+                            )
+                        else:
+                            logger.info(
+                                f"   Validation in progress... "
+                                f"({elapsed:.1f}s elapsed, poll #{poll_count})"
+                            )
+                        last_progress = progress
+
+                    # Use server-suggested retry interval if available
+                    retry_after = response.get("retry_after", interval)
+                    logger.debug(
+                        f"Validation {validation_id} still pending, "
+                        f"retrying in {retry_after}s..."
+                    )
+                    await asyncio.sleep(retry_after)
+
+                else:
+                    raise RegistrationError(f"Unknown validation status: {status}")
+
+            except RegistrationError:
+                raise
+            except Exception as e:
+                logger.warning(f"Error polling validation status: {e}")
+                await asyncio.sleep(interval)
+
+    async def request_attestation_challenge(
+        self,
+        agent_id: str,
+        attestation_types: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request an attestation challenge from the server.
+
+        The challenge contains a cryptographic nonce that must be included
+        in the attestation evidence to prove freshness.
+
+        Args:
+            agent_id: Agent requesting attestation
+            attestation_types: Types of attestation (default: ["software"])
+
+        Returns:
+            Challenge data with challenge_id, nonce, expires_at, or None if
+            attestation is not enabled on the server.
+
+        Raises:
+            AuthenticationError: On request failure
+        """
+        if attestation_types is None:
+            attestation_types = ["software"]
+
+        try:
+            response = await self._request(
+                "POST",
+                "/security/attestation/challenge",
+                json_data={
+                    "agent_id": agent_id,
+                    "attestation_types": attestation_types,
+                },
+                auth_required=False,
+                public_api=True,
+            )
+
+            logger.info(
+                f"Received attestation challenge for {agent_id}: "
+                f"challenge_id={response.get('challenge_id', 'N/A')}"
+            )
+            return response
+
+        except Exception as e:
+            if "not enabled" in str(e).lower() or "501" in str(e):
+                logger.info("Attestation not enabled on server")
+                return None
+            raise AuthenticationError(f"Failed to request attestation challenge: {e}")
 
     async def validate_token(self, token: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -431,10 +720,28 @@ class ARCPClient:
         rate_limit: Optional[int] = None,
         requirements: Optional[AgentRequirements] = None,
         policy_tags: Optional[List[str]] = None,
+        ai_context: Optional[str] = None,
         agent_key: Optional[str] = None,
+        skip_validation: bool = False,
+        sbom: Optional[str] = None,
+        sbom_signature: Optional[str] = None,
+        container_image: Optional[str] = None,
+        is_containerized: bool = False,
+        attestation: Optional[Dict[str, Any]] = None,
     ) -> AgentInfo:
         """
         Register a new agent with the ARCP server.
+
+        This method supports both basic registration and Three-Phase Registration (TPR):
+
+        Basic mode (TPR disabled on server):
+            1. Request temp token
+            2. Register directly
+
+        TPR mode (TPR enabled on server):
+            1. Request temp token (Phase 1)
+            2. Validate compliance (Phase 2)
+            3. Register with validated token (Phase 3)
 
         Args:
             agent_id: Unique agent identifier
@@ -454,7 +761,14 @@ class ARCPClient:
             rate_limit: Maximum requests per minute
             requirements: Agent requirements specification
             policy_tags: Policy tags for governance
+            ai_context: AI-readable context for orchestration and integration
             agent_key: Agent registration key (if not already authenticated)
+            skip_validation: Force basic mode (skip TPR validation phase)
+            sbom: SBOM content in CycloneDX/SPDX JSON format
+            sbom_signature: Optional JWS signature for SBOM
+            container_image: Container image reference
+            is_containerized: Whether agent runs in container
+            attestation: Attestation evidence data
 
         Returns:
             Registered agent information
@@ -463,11 +777,40 @@ class ARCPClient:
             RegistrationError: On registration failure
         """
         try:
-            # Request temp token if not authenticated and agent_key provided
+            # Phase 1: Request temp token if not authenticated and agent_key provided
             if not self._access_token and agent_key:
                 await self.request_temp_token(agent_id, agent_type, agent_key)
 
-            # Prepare registration request
+            # Phase 2: Try TPR validation (unless skipped or already validated)
+            if self._access_token and not skip_validation:
+                try:
+                    # Attempt validation - this will succeed if TPR is enabled
+                    # and return None if TPR is disabled (503 response)
+                    validated = await self.validate_compliance(
+                        agent_id=agent_id,
+                        agent_type=agent_type,
+                        endpoint=endpoint,
+                        capabilities=capabilities,
+                        metadata=metadata,
+                        sbom=sbom,
+                        sbom_signature=sbom_signature,
+                        container_image=container_image,
+                        is_containerized=is_containerized,
+                        attestation=attestation,
+                    )
+                    if validated:
+                        logger.info(f"TPR Phase 2 complete: agent {agent_id} validated")
+                    else:
+                        logger.info(
+                            f"TPR not enabled, using basic registration for {agent_id}"
+                        )
+                except RegistrationError as e:
+                    # Validation failed - re-raise with details
+                    raise RegistrationError(
+                        f"Agent validation failed (TPR Phase 2): {e}"
+                    )
+
+            # Phase 3: Prepare and submit registration request
             request_data = AgentRegistration(
                 agent_id=agent_id,
                 name=name,
@@ -486,6 +829,7 @@ class ARCPClient:
                 rate_limit=rate_limit,
                 requirements=requirements,
                 policy_tags=policy_tags,
+                ai_context=ai_context,
             )
 
             response = await self._request(
@@ -507,6 +851,8 @@ class ARCPClient:
 
         except ValidationError as e:
             raise RegistrationError(f"Invalid registration data: {e}")
+        except RegistrationError:
+            raise  # Re-raise registration errors as-is
         except Exception as e:
             raise RegistrationError(f"Agent registration failed: {e}")
 
@@ -951,8 +1297,6 @@ class ARCPClient:
         if format == "prometheus":
             return await self.get_system_metrics()
         elif format == "json":
-            import json
-
             snapshot = await self.get_metrics_snapshot()
             return json.dumps(
                 {
@@ -1293,7 +1637,8 @@ class ARCPClient:
             ws_scheme = "wss" if parsed.scheme == "https" else "ws"
             ws_url = f"{ws_scheme}://{parsed.netloc}/public/ws"
 
-            async with websockets.connect(ws_url) as websocket:
+            ssl_opt = False if not self.verify_ssl and ws_scheme == "wss" else None
+            async with websockets.connect(ws_url, ssl=ssl_opt) as websocket:
                 logger.info("Connected to public WebSocket")
 
                 # Request initial discovery data
@@ -1353,7 +1698,8 @@ class ARCPClient:
             ws_scheme = "wss" if parsed.scheme == "https" else "ws"
             ws_url = f"{ws_scheme}://{parsed.netloc}/agents/ws"
 
-            async with websockets.connect(ws_url) as websocket:
+            ssl_opt = False if not self.verify_ssl and ws_scheme == "wss" else None
+            async with websockets.connect(ws_url, ssl=ssl_opt) as websocket:
                 logger.info("Connected to agent WebSocket")
 
                 # Wait for auth request

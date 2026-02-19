@@ -31,8 +31,12 @@ class TestPublicDiscoveryE2E:
     @pytest.fixture
     async def populated_registry(self, test_client):
         """Populate registry with test agents for discovery."""
-        # Create temp registration token to bypass admin session requirements
-        from tests.fixtures.auth_fixtures import create_temp_registration_token
+        # Import token creation functions
+        from src.arcp.core.config import config
+        from tests.fixtures.auth_fixtures import (
+            create_temp_registration_token,
+            create_validated_registration_token,
+        )
 
         # Generate unique test run ID to avoid conflicts
         test_run_id = str(uuid.uuid4())[:8]
@@ -107,16 +111,25 @@ class TestPublicDiscoveryE2E:
             },
         ]
 
-        # Register agents via API using temp tokens for each agent
+        # Register agents via API using appropriate tokens for each agent
+        # Use validated tokens if TPR is enabled, otherwise use temp tokens
         for agent_data in test_agents:
-            # Create a temp token for this specific agent
-            temp_token = create_temp_registration_token(
-                agent_data["agent_id"], agent_data["agent_type"]
-            )
-            temp_headers = {"Authorization": f"Bearer {temp_token}"}
+            # Choose the right token type based on TPR configuration
+            if config.FEATURE_THREE_PHASE:
+                # TPR enabled: use validated token with aud=arcp:register
+                token = create_validated_registration_token(
+                    agent_data["agent_id"], agent_data["agent_type"]
+                )
+            else:
+                # TPR disabled: use temp token for backward compatibility
+                token = create_temp_registration_token(
+                    agent_data["agent_id"], agent_data["agent_type"]
+                )
+
+            token_headers = {"Authorization": f"Bearer {token}"}
 
             response = test_client.post(
-                "/agents/register", json=agent_data, headers=temp_headers
+                "/agents/register", json=agent_data, headers=token_headers
             )
             ResponseValidator.assert_success_response(response, 200)
 
@@ -382,7 +395,7 @@ class TestPublicDiscoveryE2E:
             assert field in system_info, f"Missing required field: {field}"
 
         assert system_info["service"] == "ARCP (Agent Registry & Control Protocol)"
-        assert system_info["version"] == "2.0.3"
+        assert system_info["version"] == "2.1.0"
 
         # Check API capabilities
         public_api = system_info["public_api"]

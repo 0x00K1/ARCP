@@ -170,6 +170,7 @@ asyncio.run(main())
 
 ### User Guide
 - **[Agent Development](user-guide/agent-development.md)** - Building agents that integrate with ARCP
+- **[AI Context Guide](user-guide/ai-context.md)** - Making agents discoverable by AI systems
 - **[Client Library](user-guide/client-library.md)** - Using the Python client library
 
 ### API Reference
@@ -178,6 +179,7 @@ asyncio.run(main())
 
 ### Deployment
 - **[Monitoring](deployment/monitoring.md)** - Observability and monitoring
+- **[NGINX Deployment](deployment/nginx.md)** - Reverse proxy configuration with mTLS
 
 ### Security
 - **[Security Overview](security/security-overview.md)** - Security architecture and practices

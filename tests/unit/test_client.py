@@ -56,7 +56,7 @@ class TestARCPClient:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "status": "healthy",
-            "version": "2.0.3",
+            "version": "2.1.0",
             "timestamp": "2024-01-01T00:00:00Z",
         }
         mock_httpx_client.request.return_value = mock_response
@@ -64,7 +64,7 @@ class TestARCPClient:
         health = await arcp_client.health_check()
 
         assert health["status"] == "healthy"
-        assert health["version"] == "2.0.3"
+        assert health["version"] == "2.1.0"
         mock_httpx_client.request.assert_called_once()
 
     @pytest.mark.asyncio
@@ -74,7 +74,7 @@ class TestARCPClient:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "service": "ARCP",
-            "version": "2.0.3",
+            "version": "2.1.0",
             "public_api": {"features": ["discovery", "search", "stats"]},
         }
         mock_httpx_client.request.return_value = mock_response
@@ -166,16 +166,25 @@ class TestARCPClient:
 
     @pytest.mark.asyncio
     async def test_agent_registration(self, arcp_client, mock_httpx_client):
-        """Test agent registration"""
-        # Mock token request first
+        """Test agent registration with TPR (Three-Phase Registration)"""
+        # Phase 1: Mock temp token request
         token_response = MagicMock()
         token_response.status_code = 200
         token_response.json.return_value = {
-            "temp_token": "test-token",
-            "expires_in": 3600,
+            "temp_token": "test-temp-token",
+            "expires_in": 300,
         }
 
-        # Mock registration response
+        # Phase 2: Mock validate_compliance response
+        validate_response = MagicMock()
+        validate_response.status_code = 200
+        validate_response.json.return_value = {
+            "validated_token": "test-validated-token",
+            "expires_in": 300,
+            "validation_id": "val_test123",
+        }
+
+        # Phase 3: Mock registration response
         register_response = MagicMock()
         register_response.status_code = 201
         register_response.json.return_value = {
@@ -195,7 +204,7 @@ class TestARCPClient:
             "metadata": {"test": "data"},
         }
 
-        # Set up mock responses in order: token, registration, get_agent
+        # Mock get_agent response (called after registration)
         get_agent_response = MagicMock()
         get_agent_response.status_code = 200
         get_agent_response.json.return_value = {
@@ -215,8 +224,10 @@ class TestARCPClient:
             "metadata": {"test": "data"},
         }
 
+        # TPR flow: token -> validate_compliance -> register -> get_agent
         mock_httpx_client.request.side_effect = [
             token_response,
+            validate_response,
             register_response,
             get_agent_response,
         ]
@@ -240,8 +251,8 @@ class TestARCPClient:
         assert agent.name == "Test Agent"
         assert agent.status == "alive"
 
-        # Verify three calls were made (token + registration + get_agent)
-        assert mock_httpx_client.request.call_count == 3
+        # Verify four calls were made (token + validate + registration + get_agent)
+        assert mock_httpx_client.request.call_count == 4
 
     @pytest.mark.asyncio
     async def test_agent_heartbeat(self, arcp_client, mock_httpx_client):
@@ -510,19 +521,30 @@ class TestARCPClientIntegration:
     async def test_agent_lifecycle(self, mock_httpx_client):
         """Test complete agent lifecycle: register -> heartbeat -> search -> unregister"""
 
-        # Mock all responses for the lifecycle
+        # Mock all responses for the lifecycle (with TPR support)
         responses = [
-            # Token for registration
+            # Phase 1: Token for registration
             MagicMock(
                 status_code=200,
                 **{
                     "json.return_value": {
                         "temp_token": "token1",
-                        "expires_in": 3600,
+                        "expires_in": 300,
                     }
                 },
             ),
-            # Registration
+            # Phase 2: Validate compliance
+            MagicMock(
+                status_code=200,
+                **{
+                    "json.return_value": {
+                        "validated_token": "validated-token1",
+                        "expires_in": 300,
+                        "validation_id": "val_lifecycle123",
+                    }
+                },
+            ),
+            # Phase 3: Registration
             MagicMock(
                 status_code=201,
                 **{

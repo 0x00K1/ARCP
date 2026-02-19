@@ -10,7 +10,7 @@ services:
         POETRY_VERSION: 1.6.1
         USER_ID: 1000
         GROUP_ID: 1000
-        ARCP_VERSION: 2.0.3
+        ARCP_VERSION: 2.1.0
         ARCP_BUILD_DATE: 20-03-2025
         ARCP_HOST: ${ARCP_HOST:-0.0.0.0}
         ARCP_PORT: ${ARCP_PORT:-8001}
@@ -18,12 +18,15 @@ services:
         ARCP_LOGS_DIR: ${ARCP_LOGS_DIR:-/app/logs}
         ENVIRONMENT: ${ENVIRONMENT:-production}
         ARCP_DATA_DIR: ${ARCP_DATA_DIR:-/app/data}
+        ARCP_TLS_CERT_DIR: ${ARCP_TLS_CERT_DIR:-/app/certs}
+        ARCP_TLS_CERT_FILENAME: ${ARCP_TLS_CERT_FILENAME:-server.crt}
+        ARCP_TLS_KEY_FILENAME: ${ARCP_TLS_KEY_FILENAME:-server.key}
         TZ: ${TZ:-UTC}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
     container_name: arcp
     restart: unless-stopped
-    ports:
-      - "${ARCP_PORT:-8001}:${ARCP_PORT:-8001}"
+    expose:
+      - "${ARCP_PORT:-8001}"
     environment:
       # Service Configuration
       ARCP_HOST: ${ARCP_HOST:-0.0.0.0}
@@ -32,9 +35,43 @@ services:
       ARCP_LOGS_DIR: ${ARCP_LOGS_DIR:-/app/logs}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       
+      # Data Storage
+      ARCP_DATA_DIR: ${ARCP_DATA_DIR:-/app/data}
+      REDIS_DATA_DIR: ${REDIS_DATA_DIR:-/data}
+      PROMETHEUS_DATA_DIR: ${PROMETHEUS_DATA_DIR:-/data}
+      GRAFANA_DATA_DIR: ${GRAFANA_DATA_DIR:-/var/lib/grafana}
+
+      # State Agent Configuration
+      STATE_FILE: ${STATE_FILE:-registry_state.json}
+
+      # Timezone Configuration
+      TZ: ${TZ:-UTC}
+
+      # Agent Types Configuration
+      ALLOWED_AGENT_TYPES: ${ALLOWED_AGENT_TYPES:-security,monitoring,automation,networking,test}
+      
+      # Agent Configuration
+      AGENT_HEARTBEAT_TIMEOUT: ${AGENT_HEARTBEAT_TIMEOUT:-60}
+      AGENT_CLEANUP_INTERVAL: ${AGENT_CLEANUP_INTERVAL:-60}
+          
+      # Agent Registration Keys Configuration
+      AGENT_KEYS: ${AGENT_KEYS:-test-agent-001,test-agent-002,test-agent-003}
+      
+      # Authentication
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-3000}
+
       # Security Configuration
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000,http://localhost:8001}
-      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+      # TLS/HTTPS Configuration - DISABLED (NGINX handles HTTPS termination)
+      ARCP_TLS_ENABLED: false
+      ARCP_TLS_CERT_DIR: ${ARCP_TLS_CERT_DIR:-/app/certs}
+      ARCP_TLS_CERT_FILENAME: ${ARCP_TLS_CERT_FILENAME:-server.crt}
+      ARCP_TLS_KEY_FILENAME: ${ARCP_TLS_KEY_FILENAME:-server.key}
+
+      # CORS and Host Security
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://localhost,http://localhost:3000,http://localhost:8000,http://localhost:8001,https://localhost}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-localhost,127.0.0.1,0.0.0.0,nginx}
       
       # CSP connect-src controls for dashboard network calls
       CSP_ALLOW_CONNECT_HTTP: ${CSP_ALLOW_CONNECT_HTTP:-true}
@@ -61,37 +98,100 @@ services:
       
       # Content Filtering
       CONTENT_FILTERING: ${CONTENT_FILTERING:-true}
+
+      # Three-Phase Registration (TPR) Configuration
+      ARCP_TPR: ${ARCP_TPR:-false}
       
-      # Data Storage
-      ARCP_DATA_DIR: ${ARCP_DATA_DIR:-/app/data}
-      REDIS_DATA_DIR: ${REDIS_DATA_DIR:-/data}
-      PROMETHEUS_DATA_DIR: ${PROMETHEUS_DATA_DIR:-/data}
-      GRAFANA_DATA_DIR: ${GRAFANA_DATA_DIR:-/var/lib/grafana}
-
-      # State Agent Configuration
-      STATE_FILE: ${STATE_FILE:-registry_state.json}
-
-      # Timezone Configuration
-      TZ: ${TZ:-UTC}
-
-      # Agent Types Configuration
-      ALLOWED_AGENT_TYPES: ${ALLOWED_AGENT_TYPES:-security,monitoring,automation,networking,test}
+      # Token TTLs (Time To Live) for different phases
+      ARCP_TPR_TOKEN_TTL_TEMP: ${ARCP_TPR_TOKEN_TTL_TEMP:-900}
+      ARCP_TPR_TOKEN_TTL_VALIDATED: ${ARCP_TPR_TOKEN_TTL_VALIDATED:-300}
+      ARCP_TPR_TOKEN_TTL_ACCESS: ${ARCP_TPR_TOKEN_TTL_ACCESS:-3600}
       
-      # Agent Configuration
-      AGENT_HEARTBEAT_TIMEOUT: ${AGENT_HEARTBEAT_TIMEOUT:-60}
-      AGENT_CLEANUP_INTERVAL: ${AGENT_CLEANUP_INTERVAL:-60}
+      # Token Audiences for different phases
+      ARCP_TPR_TOKEN_AUD_VALIDATE: ${ARCP_TPR_TOKEN_AUD_VALIDATE:-arcp:validate}
+      ARCP_TPR_TOKEN_AUD_REGISTER: ${ARCP_TPR_TOKEN_AUD_REGISTER:-arcp:register}
+      ARCP_TPR_TOKEN_AUD_OPERATIONS: ${ARCP_TPR_TOKEN_AUD_OPERATIONS:-arcp:operations}
+      
+      # Validation Configuration
+      ARCP_TPR_VALIDATION_TIMEOUT_FAST: ${ARCP_TPR_VALIDATION_TIMEOUT_FAST:-3}
+      ARCP_TPR_VALIDATION_TIMEOUT_FULL: ${ARCP_TPR_VALIDATION_TIMEOUT_FULL:-30}
+      
+      # Endpoint Validation Configuration
+      ARCP_TPR_ENDPOINT_VALIDATION: ${ARCP_TPR_ENDPOINT_VALIDATION:-true}
+      ARCP_TPR_ENDPOINT_VALIDATION_STRICT: ${ARCP_TPR_ENDPOINT_VALIDATION_STRICT:-true}
+      ARCP_TPR_ENDPOINT_VALIDATION_MODE: ${ARCP_TPR_ENDPOINT_VALIDATION_MODE:-static}
+      ARCP_TPR_ENDPOINT_CONTRACTS_FILE: ${ARCP_TPR_ENDPOINT_CONTRACTS_FILE:-}
+      
+      # TPR-specific Rate Limits
+      ARCP_TPR_RATE_LIMIT_TEMP: ${ARCP_TPR_RATE_LIMIT_TEMP:-5}
+      ARCP_TPR_RATE_LIMIT_VALIDATE: ${ARCP_TPR_RATE_LIMIT_VALIDATE:-3}
+      ARCP_TPR_RATE_LIMIT_REGISTER: ${ARCP_TPR_RATE_LIMIT_REGISTER:-2}
+      
+      # Idempotency Configuration
+      ARCP_TPR_IDEMPOTENCY_TTL: ${ARCP_TPR_IDEMPOTENCY_TTL:-600}
+      
+      # Instance Tracking Configuration
+      ARCP_TPR_HEARTBEAT_INTERVAL: ${ARCP_TPR_HEARTBEAT_INTERVAL:-15}
+      ARCP_TPR_INSTANCE_TTL_MULT: ${ARCP_TPR_INSTANCE_TTL_MULT:-3}
+      
+      # Validation Worker Configuration
+      ARCP_TPR_VALIDATION_QUEUE_MAX: ${ARCP_TPR_VALIDATION_QUEUE_MAX:-1000}
+      ARCP_TPR_VALIDATION_WORKERS: ${ARCP_TPR_VALIDATION_WORKERS:-4}
+      
+      # JWKS Configuration
+      JWKS_ENABLED: ${JWKS_ENABLED:-false}
+      JWKS_ALGORITHM: ${JWKS_ALGORITHM:-EdDSA}
+      JWKS_ROTATION_DAYS: ${JWKS_ROTATION_DAYS:-30}
+      JWKS_OVERLAP_DAYS: ${JWKS_OVERLAP_DAYS:-7}
+      
+      # DPoP Configuration
+      DPOP_ENABLED: ${DPOP_ENABLED:-true}
+      DPOP_REQUIRED: ${DPOP_REQUIRED:-false}
+      DPOP_PROOF_TTL: ${DPOP_PROOF_TTL:-120}
+      DPOP_CLOCK_SKEW: ${DPOP_CLOCK_SKEW:-60}
+      DPOP_ALGORITHMS: ${DPOP_ALGORITHMS:-EdDSA,ES256}
+      
+      # mTLS Configuration
+      MTLS_ENABLED: ${MTLS_ENABLED:-false}
+      MTLS_REQUIRED_REMOTE: ${MTLS_REQUIRED_REMOTE:-true}
+      MTLS_VERIFY_CHAIN: ${MTLS_VERIFY_CHAIN:-false}
+      MTLS_CERT_HEADER: ${MTLS_CERT_HEADER:-X-Client-Cert}
+      # MTLS_CA_BUNDLE: ${MTLS_CA_BUNDLE:-/path/to/ca-bundle.pem}
+      MTLS_CHECK_REVOCATION: ${MTLS_CHECK_REVOCATION:-false}
+      MTLS_OCSP_TIMEOUT: ${MTLS_OCSP_TIMEOUT:-5}
+      MTLS_CRL_CACHE_TTL: ${MTLS_CRL_CACHE_TTL:-3600}
+      MTLS_CRL_TIMEOUT: ${MTLS_CRL_TIMEOUT:-10}
+      MTLS_REVOCATION_SOFT_FAIL: ${MTLS_REVOCATION_SOFT_FAIL:-true}
 
-      # Authentication
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
-      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-3000}
-
-      # Admin Authentication
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-ARCP}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ARCP}
-          
-      # Agent Registration Keys Configuration
-      AGENT_KEYS: ${AGENT_KEYS:-test-agent-001,test-agent-002,test-agent-003}
+      # SBOM Verification Configuration
+      SBOM_VERIFICATION_ENABLED: ${SBOM_VERIFICATION_ENABLED:-false}
+      SBOM_REQUIRED: ${SBOM_REQUIRED:-false}
+      SBOM_ALLOWED_FORMATS: ${SBOM_ALLOWED_FORMATS:-cyclonedx,spdx}
+      SBOM_FAIL_ON_CRITICAL: ${SBOM_FAIL_ON_CRITICAL:-true}
+      SBOM_FAIL_ON_HIGH: ${SBOM_FAIL_ON_HIGH:-false}
+      SBOM_VULNERABILITY_CHECK: ${SBOM_VULNERABILITY_CHECK:-true}
+      SBOM_VULNERABILITY_CACHE_TTL: ${SBOM_VULNERABILITY_CACHE_TTL:-3600}
+      SBOM_OSV_API_URL: ${SBOM_OSV_API_URL:-https://api.osv.dev/v1}
+      SBOM_OSV_API_TIMEOUT: ${SBOM_OSV_API_TIMEOUT:-30}
+      
+      # Container Scanning Configuration
+      CONTAINER_SCAN_ENABLED: ${CONTAINER_SCAN_ENABLED:-false}
+      CONTAINER_SCAN_REQUIRED: ${CONTAINER_SCAN_REQUIRED:-false}
+      CONTAINER_SCANNER: ${CONTAINER_SCANNER:-auto}
+      CONTAINER_SCAN_FAIL_ON_CRITICAL: ${CONTAINER_SCAN_FAIL_ON_CRITICAL:-true}
+      CONTAINER_SCAN_FAIL_ON_HIGH: ${CONTAINER_SCAN_FAIL_ON_HIGH:-false}
+      CONTAINER_SCAN_FAIL_ON_SECRETS: ${CONTAINER_SCAN_FAIL_ON_SECRETS:-true}
+      CONTAINER_SCAN_TIMEOUT: ${CONTAINER_SCAN_TIMEOUT:-300}
+      CONTAINER_SCAN_CACHE_TTL: ${CONTAINER_SCAN_CACHE_TTL:-3600}
+      CONTAINER_TRIVY_CACHE_DIR: ${CONTAINER_TRIVY_CACHE_DIR:-/home/arcp/.cache/trivy}
+      
+      # Attestation Configuration
+      ATTESTATION_ENABLED: ${ATTESTATION_ENABLED:-false}
+      ATTESTATION_REQUIRED: ${ATTESTATION_REQUIRED:-false}
+      ATTESTATION_TYPE: ${ATTESTATION_TYPE:-software}
+      ATTESTATION_CHALLENGE_TTL: ${ATTESTATION_CHALLENGE_TTL:-300}
+      ATTESTATION_INTERVAL: ${ATTESTATION_INTERVAL:-3600}
+      ATTESTATION_CLOCK_SKEW: ${ATTESTATION_CLOCK_SKEW:-60}
       
       # WebSocket Configuration
       WEBSOCKET_INTERVAL: ${WEBSOCKET_INTERVAL:-30}
@@ -127,6 +227,12 @@ services:
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-"%(asctime)s - %(name)s - %(levelname)s - %(message)s"}
+
+      # Dashboard Configuration
+      # Admin Authentication
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-ARCP}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ARCP}
+      # Logging
       DASHBOARD_LOG_BUFFER_MAXLEN: ${DASHBOARD_LOG_BUFFER_MAXLEN:-10000}
       DASHBOARD_LOG_MESSAGE_MAXLEN: ${DASHBOARD_LOG_MESSAGE_MAXLEN:-2048}
       
@@ -171,11 +277,12 @@ services:
       JAEGER_METRICS_PORT: ${JAEGER_METRICS_PORT:-14269}
 
     volumes:
-      - arcp_data:${ARCP_DATA_DIR}
       - arcp_logs:${ARCP_LOGS_DIR}
+      - arcp_data:${ARCP_DATA_DIR}
+      - trivy_cache:${CONTAINER_TRIVY_CACHE_DIR}
     tmpfs:
-      - /tmp:rw,exec,size=100M
-      - /var/tmp:rw,exec,size=100M
+      - /tmp:rw,exec,size=1G
+      - /var/tmp:rw,exec,size=1G
     depends_on:
       redis:
         condition: service_healthy
@@ -206,6 +313,38 @@ services:
         max-file: "3"
     labels:
       - "com.docker.compose.service=arcp"
+
+  nginx:
+    image: nginx:alpine
+    container_name: arcp-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../certs:/etc/nginx/certs:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      arcp:
+        condition: service_healthy
+    networks:
+      - arcp_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.service=nginx"
 
   redis:
     image: redis:7-alpine
@@ -406,9 +545,11 @@ services:
 volumes:
   arcp_data:
   arcp_logs:
+  nginx_logs:
   redis_data:
   prometheus_data:
   grafana_data:
+  trivy_cache:
 
 networks:
   arcp_network:

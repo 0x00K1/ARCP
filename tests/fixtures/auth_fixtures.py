@@ -295,9 +295,19 @@ def create_admin_token(username: str = "admin", expires_in_hours: int = 1) -> st
 
 
 def create_temp_registration_token(
-    agent_id: str, agent_type: str = "automation"
+    agent_id: str, agent_type: str = "automation", for_validation: bool = False
 ) -> str:
-    """Create a temporary registration token for testing."""
+    """Create a temporary registration token for testing.
+
+    Args:
+        agent_id: The agent ID
+        agent_type: The agent type
+        for_validation: If True, create token with aud=arcp:validate for Phase 2.
+                       If False, create basic temp token for backward compatibility.
+
+    Returns:
+        JWT token string
+    """
     from src.arcp.core.config import config
 
     payload = {
@@ -310,4 +320,44 @@ def create_temp_registration_token(
         "iat": int(datetime.now(timezone.utc).timestamp()),
         "iss": "arcp",
     }
+
+    # If for_validation, add TPR-specific fields for Phase 2
+    if for_validation:
+        payload["aud"] = config.TOKEN_AUD_VALIDATE
+        payload["token_type"] = "temp"
+
     return jwt.encode(payload, config.JWT_SECRET, algorithm=config.JWT_ALGORITHM)
+
+
+def create_validated_registration_token(
+    agent_id: str, agent_type: str = "automation", validation_id: str = None
+) -> str:
+    """Create a validated registration token for testing (TPR Phase 3).
+
+    This token is what agents receive after successful validation and is
+    required for /agents/register when TPR is enabled.
+
+    Args:
+        agent_id: The agent ID
+        agent_type: The agent type
+        validation_id: Optional validation ID to include
+
+    Returns:
+        JWT token string with aud=arcp:register
+    """
+    from src.arcp.core.config import config
+
+    payload = {
+        "sub": agent_id,
+        "agent_id": agent_id,
+        "agent_type": agent_type,
+        "role": "agent",
+        "aud": config.TOKEN_AUD_REGISTER,
+        "token_type": "validated",
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp()),
+        "iat": int(datetime.now(timezone.utc).timestamp()),
+        "iss": "arcp",
+    }
+
+    if validation_id:
+        payload["validation_id"] = validation_id

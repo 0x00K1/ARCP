@@ -4,6 +4,7 @@ Security response sanitizer to prevent information leakage and input reflection.
 
 import html
 import re
+from datetime import datetime
 from typing import Any, Dict, List
 
 
@@ -177,9 +178,6 @@ class SecuritySanitizer:
 
         if details:
             response["detail"] = cls.sanitize_error_detail(details)
-
-        # Add timestamp for debugging (but not sensitive info)
-        from datetime import datetime
 
         response["timestamp"] = datetime.now().isoformat()
 

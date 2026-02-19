@@ -34,15 +34,14 @@ def initialize_logging(log_file_name: str = "arcp.log") -> None:
         return
 
     try:
-        # Ensure logs directory (with built-in fallbacks)
+        # Ensure logs directory (config handles all fallback logic)
         if hasattr(config, "ensure_logs_directory") and callable(
             getattr(config, "ensure_logs_directory")
         ):
             config.ensure_logs_directory()
     except Exception as e:
         # Log the error but continue with stdout-only if file handler fails
-        print(f"Warning: Could not ensure logs directory: {e}")
-        pass
+        logging.warning(f"Could not ensure logs directory: {e}")
 
     # Root logger
     root_logger = logging.getLogger()
@@ -71,38 +70,7 @@ def initialize_logging(log_file_name: str = "arcp.log") -> None:
     try:
         logs_dir = getattr(config, "LOGS_DIR", None)
         if isinstance(logs_dir, str) and logs_dir:
-            # Try multiple fallback locations for logs
-            log_locations = [
-                logs_dir,  # Primary location - /app/logs
-                "/tmp/arcp/logs",  # Fallback 1: tmp directory
-                "/var/tmp/arcp/logs",  # Fallback 2: var/tmp
-                os.path.expanduser("~/arcp/logs"),  # Fallback 3: user home
-            ]
-
-            log_path = None
-            for location in log_locations:
-                try:
-                    os.makedirs(location, exist_ok=True)
-                    # Test if we can write to the directory
-                    test_file = os.path.join(location, ".test_write")
-                    with open(test_file, "w") as f:
-                        f.write("test")
-                    os.remove(test_file)
-
-                    # If we get here, this location works
-                    log_path = os.path.join(location, log_file_name)
-                    if location == logs_dir:
-                        print(f"Using primary logs directory: {location}")
-                    else:
-                        print(f"Using fallback logs directory: {location}")
-                    break
-                except Exception as location_error:
-                    print(f"Cannot use logs directory {location}: {location_error}")
-                    continue
-
-            if log_path is None:
-                print("Warning: No writable logs directory found, using stdout only")
-                raise Exception("No writable logs directory available")
+            log_path = os.path.join(logs_dir, log_file_name)
 
             # Avoid duplicate file handlers for the same path
             existing_file = next(
@@ -110,7 +78,7 @@ def initialize_logging(log_file_name: str = "arcp.log") -> None:
                     h
                     for h in root_logger.handlers
                     if isinstance(h, RotatingFileHandler)
-                    and getattr(h, "baseFilename", None) == log_path
+                    and getattr(h, "baseFilename", None) == os.path.abspath(log_path)
                 ),
                 None,
             )
@@ -124,11 +92,10 @@ def initialize_logging(log_file_name: str = "arcp.log") -> None:
                 file_handler.setFormatter(formatter)
                 file_handler.setLevel(root_logger.level)
                 root_logger.addHandler(file_handler)
-                print(f"File logging enabled: {log_path}")
+                logging.info(f"File logging enabled: {log_path}")
     except Exception as e:
         # If file handler fails, continue with stdout-only
-        print(f"Warning: Could not create file handler: {e}")
-        pass
+        logging.warning(f"Could not create file handler: {e}")
 
     # Ensure a single stream handler exists for console output
     if not any(

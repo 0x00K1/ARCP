@@ -6,9 +6,11 @@ tracing and observability in the ARCP service.
 """
 
 import logging
+import socket
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -17,7 +19,10 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.trace.export import (  # noqa: F401
+    BatchSpanProcessor,
+    ConsoleSpanExporter,
+)
 from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
 from opentelemetry.semconv.resource import ResourceAttributes
 
@@ -40,6 +45,45 @@ except ImportError as e:
 
 # Global tracer instance
 _tracer: Optional[trace.Tracer] = None
+
+
+def _check_endpoint_connectivity(endpoint: str, timeout: float = 2.0) -> bool:
+    """
+    Check if an endpoint is reachable.
+
+    Args:
+        endpoint: URL endpoint to check
+        timeout: Connection timeout in seconds
+
+    Returns:
+        True if endpoint is reachable, False otherwise
+    """
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname or "localhost"
+        port = parsed.port
+
+        # Default ports if not specified
+        if port is None:
+            if "jaeger" in endpoint and "14268" in endpoint:
+                port = 14268
+            elif "jaeger" in endpoint and "4317" in endpoint:
+                port = 4317
+            elif parsed.scheme == "https":
+                port = 443
+            else:
+                port = 80
+
+        # Try to connect
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+
+        return result == 0
+    except Exception as e:
+        logger.debug(f"Connectivity check failed for {endpoint}: {e}")
+        return False
 
 
 def initialize_tracing() -> None:
@@ -80,22 +124,23 @@ def initialize_tracing() -> None:
 
         # Jaeger exporter
         if config.JAEGER_ENDPOINT and JAEGER_AVAILABLE:
-            try:
-                jaeger_exporter = JaegerExporter(
-                    agent_host_name="localhost",
-                    agent_port=6831,
-                    collector_endpoint=config.JAEGER_ENDPOINT,
+            # Check connectivity before configuring exporter
+            if _check_endpoint_connectivity(config.JAEGER_ENDPOINT):
+                try:
+                    jaeger_exporter = JaegerExporter(
+                        agent_host_name="localhost",
+                        agent_port=6831,
+                        collector_endpoint=config.JAEGER_ENDPOINT,
+                    )
+                    exporters.append(jaeger_exporter)
+                    console_fallback_needed = False
+                    logger.info(f"Jaeger exporter configured: {config.JAEGER_ENDPOINT}")
+                except Exception as e:
+                    logger.error(f"Failed to configure Jaeger exporter: {e}")
+            else:
+                logger.info(
+                    f"Jaeger endpoint unreachable, skipping: {config.JAEGER_ENDPOINT}"
                 )
-                # Add Jaeger exporter without health check
-                # Note: Health check removed as collector endpoint (14268) doesn't serve HTTP GET at root
-                # The collector is specifically for receiving traces via POST to /api/traces
-                exporters.append(jaeger_exporter)
-                console_fallback_needed = (
-                    False  # We have Jaeger configured, disable console
-                )
-                logger.info(f"Jaeger exporter configured: {config.JAEGER_ENDPOINT}")
-            except Exception as e:
-                logger.error(f"Failed to configure Jaeger exporter: {e}")
         elif config.JAEGER_ENDPOINT and not JAEGER_AVAILABLE:
             logger.warning(
                 "Jaeger endpoint configured but Jaeger exporter is not available"
@@ -105,22 +150,29 @@ def initialize_tracing() -> None:
 
         # OTLP exporter
         if config.OTLP_ENDPOINT:
-            try:
-                otlp_exporter = OTLPSpanExporter(
-                    endpoint=config.OTLP_ENDPOINT,
-                    insecure=True,  # Use secure=False for HTTP
+            # Check connectivity before configuring exporter
+            if _check_endpoint_connectivity(config.OTLP_ENDPOINT):
+                try:
+                    otlp_exporter = OTLPSpanExporter(
+                        endpoint=config.OTLP_ENDPOINT,
+                        insecure=True,  # Use secure=False for HTTP
+                    )
+                    exporters.append(otlp_exporter)
+                    console_fallback_needed = False  # We have a working remote exporter
+                    logger.info(f"OTLP exporter configured: {config.OTLP_ENDPOINT}")
+                except Exception as e:
+                    logger.error(f"Failed to configure OTLP exporter: {e}")
+            else:
+                logger.info(
+                    f"OTLP endpoint unreachable, skipping: {config.OTLP_ENDPOINT}"
                 )
-                exporters.append(otlp_exporter)
-                console_fallback_needed = False  # We have a working remote exporter
-                logger.info(f"OTLP exporter configured: {config.OTLP_ENDPOINT}")
-            except Exception as e:
-                logger.error(f"Failed to configure OTLP exporter: {e}")
 
         # Fallback: only add console exporter if no remote exporters are available
         if console_fallback_needed and not exporters:
-            exporters.append(ConsoleSpanExporter())
+            # Don't add console exporter - it creates too much noise in local development
+            # Just log that tracing will be disabled
             logger.info(
-                "No remote exporters available - using console exporter as fallback"
+                "No remote exporters available - tracing data will not be collected"
             )
         elif not console_fallback_needed:
             logger.info(
@@ -133,6 +185,22 @@ def initialize_tracing() -> None:
         for exporter in exporters:
             processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
+
+        # Suppress OpenTelemetry error logs if no remote exporters are configured
+        if console_fallback_needed:
+            # Disable verbose error logging from OpenTelemetry when exporters fail
+            logging.getLogger("opentelemetry.sdk._shared_internal").setLevel(
+                logging.CRITICAL
+            )
+            logging.getLogger(
+                "opentelemetry.exporter.otlp.proto.grpc.exporter"
+            ).setLevel(logging.CRITICAL)
+            logging.getLogger("opentelemetry.exporter.jaeger").setLevel(
+                logging.CRITICAL
+            )
+            logger.info(
+                "Suppressing OpenTelemetry exporter errors (no remote endpoints available)"
+            )
 
         # Set global tracer provider
         trace.set_tracer_provider(provider)

@@ -12,6 +12,10 @@ Usage:
         docker-compose up -d --build
 """
 
+import logging
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from .core.config import config
@@ -39,7 +43,7 @@ from .core.startup import lifespan
 app = FastAPI(
     title="ARCP (Agent Registry & Control Protocol)",
     description="A sophisticated agent orchestration protocol that provides centralized service discovery, registration, communication, and control for distributed agent systems.",
-    version="2.0.3",
+    version="2.1.0",
     debug=bool(getattr(config, "DEBUG", False)),
     lifespan=lifespan,
 )
@@ -63,9 +67,42 @@ register_api_routes(app)
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(
-        "arcp.__main__:app",
-        host=config.HOST,
-        port=config.PORT,
-        reload=config.DEBUG,
-    )
+    # Build uvicorn configuration
+    uvicorn_config = {
+        "app": "arcp.__main__:app",
+        "host": config.HOST,
+        "port": config.PORT,
+        "reload": config.DEBUG,
+        "log_level": "info",
+    }
+
+    # Add TLS/HTTPS configuration if enabled
+    if config.TLS_ENABLED:
+        cert_path = Path(config.TLS_CERT_DIR) / config.TLS_CERT_FILENAME
+        key_path = Path(config.TLS_CERT_DIR) / config.TLS_KEY_FILENAME
+
+        # Verify certificate files exist
+        if not cert_path.exists():
+            logging.error(f"TLS certificate not found: {cert_path}")
+            logging.error(
+                f"Set ARCP_TLS_ENABLED=false or mount certificates to {config.TLS_CERT_DIR}/"
+            )
+            sys.exit(1)
+
+        if not key_path.exists():
+            logging.error(f"TLS private key not found: {key_path}")
+            logging.error(
+                f"Set ARCP_TLS_ENABLED=false or mount certificates to {config.TLS_CERT_DIR}/"
+            )
+            sys.exit(1)
+
+        # Add SSL configuration
+        uvicorn_config.update(
+            {
+                "ssl_certfile": str(cert_path.resolve()),
+                "ssl_keyfile": str(key_path.resolve()),
+            }
+        )
+
+    # Start the server
+    uvicorn.run(**uvicorn_config)

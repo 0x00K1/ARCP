@@ -118,9 +118,21 @@ class AgentRegistry:
         """Load registry state from file."""
         state_file = config.STATE_FILE
         if state_file and Path(state_file).exists():
+            # Check if file is empty or too small to be valid JSON
+            file_size = Path(state_file).stat().st_size
+            if file_size < 2:  # Minimum valid JSON is "{}" (2 bytes)
+                logger.debug(
+                    f"State file is empty or too small ({file_size} bytes), skipping load"
+                )
+                return
+
             try:
                 with open(state_file, "r") as f:
-                    state = json.load(f)
+                    content = f.read().strip()
+                    if not content:
+                        logger.debug("State file is empty, skipping load")
+                        return
+                    state = json.loads(content)
 
                     # Load agent data
                     for aid, info in state.get("agents", {}).items():
@@ -135,12 +147,18 @@ class AgentRegistry:
                         self.backup_info_hashes.update(state["info_hashes"])
 
                 logger.info(f"Loaded {len(self.backup_agents)} agents from state file")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON in registry state file: {e}")
+                # Don't try fallback if JSON is malformed - file needs to be recreated
             except Exception as e:
                 logger.error(f"Error loading registry state: {e}")
                 # Fallback to old format for backwards compatibility
                 try:
                     with open(state_file, "r") as f:
-                        state = json.load(f)
+                        content = f.read().strip()
+                        if not content:
+                            return
+                        state = json.loads(content)
                         for aid, info in state.items():
                             if isinstance(info, dict) and "last_seen" in info:
                                 info["last_seen"] = datetime.fromisoformat(
@@ -152,6 +170,10 @@ class AgentRegistry:
                                 self.backup_agents[aid] = info
                     logger.info(
                         f"Loaded {len(self.backup_agents)} agents from old format state file"
+                    )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "State file contains invalid JSON, will be recreated on next save"
                     )
                 except Exception as e2:
                     logger.error(f"Error loading old format registry state: {e2}")
@@ -192,8 +214,16 @@ class AgentRegistry:
 
             with open(state_file, "w") as f:
                 json.dump(state, f)
+        except PermissionError:
+            logger.warning(
+                f"Cannot write registry state file (permission denied): {state_file}. Registry data is safely stored in Redis."
+            )
+        except OSError:
+            logger.warning(
+                f"Cannot write registry state file (filesystem error): {state_file}. Registry data is safely stored in Redis."
+            )
         except Exception as e:
-            logger.error(f"Error saving registry state: {e}")
+            logger.error(f"Unexpected error saving registry state: {e}")
 
     def embed_text(self, text: str) -> Optional[list]:
         """
@@ -237,6 +267,8 @@ class AgentRegistry:
                 agent_type=data.get("agent_type"),
                 used_key=data.get("used_key"),
                 agent_key_hash=data.get("agent_key_hash"),
+                aud=data.get("aud"),  # Pass audience for TPR
+                token_type=data.get("token_type"),  # Pass token type for TPR
             )
 
             # Use TokenService to mint token (now synchronous)
@@ -468,15 +500,28 @@ class AgentRegistry:
             "context_brief": agent_info.get("context_brief", ""),
             "capabilities": sorted(agent_info.get("capabilities", [])),
             "agent_type": agent_info.get("agent_type", ""),
-            "features": agent_info.get("features", []),
+            "features": sorted(agent_info.get("features", [])),  # Sort for consistency
         }
 
-        # Include metadata
+        # Include metadata (but exclude timestamp fields to ensure deterministic hash)
         metadata = agent_info.get("metadata", {})
         if metadata:
+            # Exclude timestamp/datetime fields that change on each registration
+            timestamp_keys = {
+                "created_at",
+                "updated_at",
+                "timestamp",
+                "registered_at",
+                "last_seen",
+            }
+
             # Extract the same searchable metadata text that's used in embedding
             metadata_text = []
             for key, value in metadata.items():
+                # Skip timestamp fields
+                if key.lower() in timestamp_keys:
+                    continue
+
                 if isinstance(value, str):
                     metadata_text.append(value)
                 elif isinstance(value, list):
@@ -500,6 +545,14 @@ class AgentRegistry:
         # Decode bytes from Redis to string for proper comparison
         if isinstance(stored_hash, (bytes, bytearray)):
             stored_hash = stored_hash.decode()
+
+        # Diagnostic logging
+        logger.info(
+            f"Embedding cache check for {agent_id}: "
+            f"stored_hash={'<none>' if stored_hash is None else stored_hash[:16]+'...'}, "
+            f"current_hash={current_hash[:16]+'...'}, "
+            f"match={stored_hash == current_hash}"
+        )
 
         # Generate embedding if hash changed or doesn't exist
         return stored_hash != current_hash
@@ -680,6 +733,7 @@ class AgentRegistry:
                     "rate_limit": request.rate_limit,
                     "requirements": request.requirements,
                     "policy_tags": request.policy_tags or [],
+                    "ai_context": request.ai_context,
                     # System fields
                     "last_seen": now,
                     "registered_at": now,
@@ -711,6 +765,11 @@ class AgentRegistry:
                     if metadata_text:
                         embedding_parts.append(" ".join(metadata_text))
 
+                # Add AI context to embedding if available
+                # This is crucial for AI-based agent discovery and selection
+                if agent_data.get("ai_context"):
+                    embedding_parts.append(agent_data["ai_context"])
+
                 embedding_text = " ".join(embedding_parts)
 
                 # Generate and store embedding for vector search (if AI available)
@@ -734,8 +793,8 @@ class AgentRegistry:
                             f"Failed to generate embedding for {request.agent_id}: {e}"
                         )
                 elif self.openai_service.is_available():
-                    logger.debug(
-                        f"Skipping embedding generation for {request.agent_id} - info unchanged"
+                    logger.info(
+                        f"Skipping embedding generation for {request.agent_id} - info unchanged (cache hit)"
                     )
 
                 # Store agent data
@@ -785,6 +844,7 @@ class AgentRegistry:
                     rate_limit=request.rate_limit,
                     requirements=request.requirements,
                     policy_tags=request.policy_tags,
+                    ai_context=request.ai_context,
                     # System/operational fields
                     status="alive",
                     last_seen=now,
@@ -843,6 +903,7 @@ class AgentRegistry:
                     rate_limit=agent_data.get("rate_limit"),
                     requirements=agent_data.get("requirements"),
                     policy_tags=agent_data.get("policy_tags", []),
+                    ai_context=agent_data.get("ai_context"),
                     # System fields
                     status="alive",
                     last_seen=now,
@@ -1251,9 +1312,14 @@ class AgentRegistry:
                 removal_errors = []
                 try:
                     await self.storage.hdel("agent:data", agent_id)
-                    await self.storage.hdel("agent:embeddings", agent_id)
+                    # NOTE: Preserve embeddings and info_hashes to enable embedding cache reuse
+                    # when an agent re-registers with the same information. This avoids unnecessary
+                    # OpenAI API calls. Both the embedding vector and its hash must be preserved.
+                    # await self.storage.hdel("agent:embeddings", agent_id)  # Commented out
+                    logger.info(f"Preserved embedding for {agent_id} for cache reuse")
                     await self.storage.hdel("agent:metrics", agent_id)
-                    await self.storage.hdel("agent:info_hashes", agent_id)
+                    # await self.storage.hdel("agent:info_hashes", agent_id)  # Commented out
+                    logger.info(f"Preserved info_hash for {agent_id} for cache reuse")
 
                     # Remove agent key mapping if exists
                     agent_key_hash = await self.find_agent_key_hash(agent_id)
@@ -1270,9 +1336,10 @@ class AgentRegistry:
 
                 # Always remove from in-memory fallbacks to ensure consistency
                 self.backup_agents.pop(agent_id, None)
-                self.backup_embeddings.pop(agent_id, None)
+                # NOTE: Preserve embeddings and info_hashes for embedding cache reuse on re-registration
+                # self.backup_embeddings.pop(agent_id, None)  # Commented out
                 self.backup_metrics.pop(agent_id, None)
-                self.backup_info_hashes.pop(agent_id, None)
+                # self.backup_info_hashes.pop(agent_id, None)  # Commented out
 
                 # Remove from agent key backup (find and remove by value)
                 if hasattr(self, "backup_agent_keys"):

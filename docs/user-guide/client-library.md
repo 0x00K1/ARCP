@@ -2,6 +2,8 @@
 
 The ARCP Python client library provides a comprehensive interface for interacting with ARCP servers. This guide covers all client features with practical examples.
 
+> **Tip:** When registering agents, use the `ai_context` field to make them discoverable by AI systems. See the [AI Context Guide](ai-context.md) for details. For building complete agents, check out the [Agent Development Guide](agent-development.md).
+
 ## 🚀 Installation
 
 ```bash
@@ -79,6 +81,8 @@ asyncio.run(admin_example())
 
 ### Agent Authentication
 
+#### Basic Authentication
+
 ```python
 async def agent_example():
     client = ARCPClient("http://localhost:8001")
@@ -96,6 +100,107 @@ async def agent_example():
     # (Token is automatically used in subsequent requests)
 
 asyncio.run(agent_example())
+```
+
+#### Three-Phase Registration Authentication
+
+```python
+async def tpr_auth_example():
+    client = ARCPClient("http://localhost:8001")
+    
+    # Phase 1: Request temporary token
+    temp_token = await client.request_temp_token(
+        agent_id="secure-agent",
+        agent_type="security",
+        agent_key="test-agent-001"
+    )
+    print(f"Phase 1: Temp token obtained (15 min validity)")
+    
+    # Phase 2: Validate compliance (automatic polling)
+    validated_token = await client.validate_compliance(
+        agent_id="secure-agent",
+        agent_type="security",
+        endpoint="https://secure-agent.example.com",
+        capabilities=["vulnerability-scanning"],
+        metadata={"version": "1.0.0"},
+        poll_timeout=300.0,  # Wait up to 5 minutes
+        poll_interval=2.0    # Poll every 2 seconds
+    )
+    print(f"Phase 2: Compliance validated")
+    
+    # Phase 3: Register (handled by register_agent)
+    # The validated token is automatically used
+
+asyncio.run(tpr_auth_example())
+```
+
+### Software Attestation
+
+```python
+import hashlib
+import os
+import sys
+from datetime import datetime, timezone
+
+async def attestation_example():
+    client = ARCPClient("http://localhost:8001")
+    
+    # Request attestation challenge
+    challenge = await client.request_attestation_challenge(
+        agent_id="attested-agent",
+        attestation_types=["software"]  # or ["hardware", "firmware"]
+    )
+    
+    if challenge:
+        print(f"Challenge ID: {challenge['challenge_id']}")
+        print(f"Nonce: {challenge['nonce']}")
+        print(f"Expires at: {challenge['expires_at']}")
+        
+        # Generate attestation using the challenge
+        import hashlib
+        code_hash = hashlib.sha256(b"agent-code").hexdigest()
+        config_hash = hashlib.sha256(b"agent-config").hexdigest()
+        
+        attestation_data = {
+            "type": "software",
+            "attestation_type": "software",
+            "challenge_id": challenge["challenge_id"],
+            "nonce": challenge["nonce"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "code_measurements": {
+                "agent.py": code_hash,
+                "config.json": config_hash
+            },
+            "executable_hash": code_hash,
+            "environment_hash": config_hash,
+            "process_info": {
+                "pid": os.getpid(),
+                "executable_path": sys.executable,
+                "executable_hash": code_hash,
+                "command_line": " ".join(sys.argv),
+                "working_directory": os.getcwd(),
+                "start_time": datetime.now(timezone.utc).isoformat()
+            },
+            "platform": {
+                "os": "linux",
+                "python_version": "3.11.0",
+                "agent_version": "1.0.0"
+            }
+        }
+        
+        # Submit attestation during validation
+        validated = await client.validate_compliance(
+            agent_id="attested-agent",
+            agent_type="security",
+            endpoint="https://attested-agent.example.com",
+            capabilities=["secure-processing"],
+            attestation=attestation_data
+        )
+        print("Attestation validated!")
+    else:
+        print("Attestation not enabled on server")
+
+asyncio.run(attestation_example())
 ```
 
 ### Token Validation
@@ -120,6 +225,8 @@ asyncio.run(validate_token_example())
 ## 🤖 Agent Management
 
 ### Register an Agent
+
+#### Basic Registration (TPR Disabled)
 
 ```python
 from arcp import AgentRequirements
@@ -166,6 +273,122 @@ async def register_agent_example():
     print(f"Registered at: {agent.registered_at}")
 
 asyncio.run(register_agent_example())
+```
+
+#### Three-Phase Registration (TPR Enabled)
+
+When TPR is enabled on the server, the client automatically handles all three phases:
+
+```python
+async def tpr_registration_example():
+    client = ARCPClient("http://localhost:8001")
+    
+    # The client automatically handles TPR phases:
+    # Phase 1: Request temporary token
+    # Phase 2: Validate compliance (SBOM, container scan, attestation)
+    # Phase 3: Register with validated token
+    
+    agent = await client.register_agent(
+        agent_id="secure-agent",
+        name="Secure Agent",
+        agent_type="security",
+        endpoint="https://secure-agent.example.com",
+        capabilities=["vulnerability-scanning", "threat-detection"],
+        context_brief="Security agent with SBOM and attestation",
+        version="2.1.0",
+        owner="Security Team",
+        public_key="secure-agent-public-key-32-chars-minimum",
+        communication_mode="remote",
+        agent_key="test-agent-001",
+        
+        # TPR Security Features
+        sbom='{"bomFormat": "CycloneDX", "specVersion": "1.5", ...}',  # SBOM in JSON format
+        sbom_signature="eyJhbGciOi...",  # Optional JWS signature
+        container_image="myregistry.azurecr.io/secure-agent:2.1.0",
+        is_containerized=True,
+        attestation={
+            "type": "software",
+            "attestation_type": "software",
+            "challenge_id": "challenge-id-from-server",
+            "nonce": "nonce-from-challenge",
+            "timestamp": "2026-02-16T12:00:00Z",
+            "code_measurements": {
+                "agent.py": "sha256:abc123...",
+                "config.json": "sha256:def456..."
+            },
+            "executable_hash": "sha256:abc123...",
+            "environment_hash": "sha256:def456...",
+            "process_info": {
+                "pid": 12345,
+                "executable_path": "/usr/bin/python3",
+                "executable_hash": "sha256:abc123...",
+                "command_line": "python agent.py",
+                "working_directory": "/app",
+                "start_time": "2026-02-16T12:00:00Z"
+            },
+            "platform": {
+                "os": "linux",
+                "python_version": "3.11.0",
+                "agent_version": "2.1.0"
+            }
+        }
+    )
+    
+    print(f"Agent registered with TPR: {agent.name}")
+    print(f"Security validation passed!")
+
+asyncio.run(tpr_registration_example())
+```
+
+#### Manual TPR Control
+
+For advanced use cases, you can manually control each TPR phase:
+
+```python
+async def manual_tpr_example():
+    client = ARCPClient("http://localhost:8001")
+    
+    agent_id = "manual-tpr-agent"
+    agent_type = "testing"
+    
+    # Phase 1: Request temporary token
+    temp_token = await client.request_temp_token(
+        agent_id=agent_id,
+        agent_type=agent_type,
+        agent_key="test-agent-001"
+    )
+    print(f"Phase 1 complete: Temporary token obtained")
+    
+    # Phase 2: Validate compliance
+    validated_token = await client.validate_compliance(
+        agent_id=agent_id,
+        agent_type=agent_type,
+        endpoint="https://my-agent.example.com",
+        capabilities=["processing"],
+        metadata={"version": "1.0.0"},
+        sbom='{"bomFormat": "CycloneDX", ...}',
+        container_image="myregistry/agent:1.0.0",
+        is_containerized=True
+    )
+    print(f"Phase 2 complete: Compliance validated")
+    
+    # Phase 3: Register with validated token (skip_validation=True)
+    agent = await client.register_agent(
+        agent_id=agent_id,
+        name="Manual TPR Agent",
+        agent_type=agent_type,
+        endpoint="https://my-agent.example.com",
+        capabilities=["processing"],
+        context_brief="Agent registered with manual TPR",
+        version="1.0.0",
+        owner="Test Team",
+        public_key="manual-tpr-agent-public-key-32-chars",
+        communication_mode="remote",
+        skip_validation=True  # Skip Phase 2 (already validated)
+    )
+    print(f"Phase 3 complete: Agent registered: {agent.name}")
+
+asyncio.run(manual_tpr_example())
 ```
 
 ### Get Agent Information

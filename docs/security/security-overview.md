@@ -10,11 +10,13 @@ ARCP implements a multi-layered security architecture designed to protect agains
 
 ### Core Security Principles
 
-- **Zero Trust Architecture**: Never trust, always verify
+- **Zero Trust Architecture**: Never trust, always verify - enforced through TPR and cryptographic bindings
 - **Principle of Least Privilege**: Minimal access rights by default
-- **Defense in Depth**: Multiple security layers
-- **Secure by Default**: Security-first configuration
-- **Comprehensive Monitoring**: Full audit trail and real-time threat detection
+- **Defense in Depth**: Multiple security layers including DPoP, mTLS, and attestation
+- **Secure by Default**: Security-first configuration with mandatory compliance validation
+- **Comprehensive Monitoring**: Full audit trail with security event logging and real-time threat detection
+- **Cryptographic Verification**: Proof-of-possession and certificate-based authentication
+- **Supply Chain Security**: SBOM verification and container scanning for vulnerability detection
 
 ---
 
@@ -27,27 +29,109 @@ ARCP implements a hierarchical authentication system with four distinct privileg
 | **Level** | **Access** | **Description** |
 |-----------|------------|-----------------|
 | `PUBLIC` | Read-only system info | No authentication required |
-| `AGENT` | Agent operations | Token-based authentication |
+| `AGENT` | Agent operations | Token-based authentication with optional DPoP/mTLS binding |
 | `ADMIN` | Administrative functions | JWT + session binding |
 | `ADMIN_PIN` | Critical operations | Admin + PIN verification |
+
+### Three-Phase Registration (TPR)
+
+ARCP 2.1.0 introduces **Three-Phase Registration** for secure agent onboarding with comprehensive validation:
+
+**Phase 1: Temporary Token** - Initial authentication using agent registration key
+- 15-minute temporary token (configurable)
+- Rate-limited to prevent abuse
+- Audience claim: `arcp:validate`
+
+**Phase 2: Compliance Validation** - Asynchronous security verification
+- SBOM vulnerability scanning via OSV database
+- Container image security scanning (Trivy/Grype)
+- Software attestation (challenge-response)
+- Endpoint contract validation
+- Background processing with status polling
+
+**Phase 3: Production Token** - Final token issuance with security bindings
+- Long-lived production token
+- Optional DPoP (proof-of-possession) binding
+- Optional mTLS (client certificate) binding
+- Full agent capabilities enabled
+
+📚 **[Complete TPR Guide →](./three-phase-registration.md)**
+
+### DPoP (Demonstrating Proof-of-Possession)
+
+**RFC 9449 Compliant**: Cryptographic binding of tokens to client keys prevents token theft and replay attacks.
+
+**Key Features:**
+- JWT-based proof generation signed with agent's private key
+- JWK thumbprint binding in token `cnf` claim
+- Unique `jti` (JWT ID) for replay prevention
+- HTTP method and URI binding (`htm`, `htu` claims)
+- Automatic validation on every request
+
+**Security Benefits:**
+- Tokens cannot be used by attackers who steal them
+- Protection against man-in-the-middle attacks
+- Cryptographic proof of key possession
+
+📚 **[Complete DPoP Guide →](./dpop.md)**
+
+### mTLS (Mutual TLS Client Authentication)
+
+**Certificate-Based Security**: X.509 client certificates for strong agent authentication.
+
+**Architecture:**
+- NGINX handles TLS termination and certificate validation
+- Client certificate forwarded to ARCP via `X-Client-Cert` header
+- SPKI (Subject Public Key Info) hash computed for token binding
+- Token `cnf.x5t#S256` claim binds token to certificate
+
+**Features:**
+- OCSP/CRL revocation checking
+- Certificate chain validation
+- Automatic certificate rotation support
+- SPKI hash binding prevents certificate substitution
+
+📚 **[Complete mTLS Guide →](./mtls.md)**
 
 ### JWT Token Security
 
 **Implementation Features:**
-- **Algorithm**: Configurable (HS256/HS384/HS512) with algorithm confusion protection
+- **Algorithm**: Symmetric (HS256/HS384/HS512) or Asymmetric (RS256/ES256) with algorithm confusion protection
 - **Expiration**: Configurable token lifetime (default: 1 hour)
 - **Validation**: Comprehensive token validation with tamper detection
 - **Rotation**: Automatic token refresh capabilities
+- **Bindings**: Optional DPoP (`cnf.jkt`) and mTLS (`cnf.x5t#S256`) bindings
 
 **Security Measures:**
 ```python
 # Token validation includes:
-- Signature verification
+- Signature verification (symmetric or asymmetric)
 - Expiration checking
 - Algorithm validation (prevents algorithm confusion attacks)
 - Payload integrity verification
+- DPoP proof validation (if bound)
+- mTLS certificate validation (if bound)
 - Blacklist checking for revoked tokens
 ```
+
+### JWKS (JSON Web Key Set)
+
+**Asymmetric Token Signing**: Public key distribution for decentralized token verification.
+
+**Features:**
+- **Algorithms**: RS256 (RSA), ES256 (ECDSA)
+- **Automatic Rotation**: Keys rotated every 30 days (configurable)
+- **Multi-Key Support**: Multiple active keys during rotation overlap (7 days)
+- **Public Endpoint**: `/.well-known/jwks.json` for key distribution
+- **Key ID (kid)**: Unique identifier in JWT header for key selection
+
+**Key Lifecycle:**
+1. New key generated automatically before expiration
+2. Both old and new keys valid during overlap period
+3. Old key retired after overlap period
+4. Zero-downtime key rotation
+
+📚 **[Complete JWKS Guide →](./jwks.md)**
 
 ### Session Management
 
@@ -132,6 +216,85 @@ DANGEROUS_PATTERNS = [
 - **Usernames**: 3-50 characters, specific character set
 - **Passwords**: 1-200 characters, full Unicode support
 - **PINs**: 4-32 characters, numeric or alphanumeric
+
+---
+
+## 🔍 Supply Chain Security
+
+### SBOM (Software Bill of Materials) Verification
+
+**Vulnerability Detection**: Real-time scanning of agent dependencies against OSV (Open Source Vulnerabilities) database.
+
+**Supported Formats:**
+- **SPDX** 2.3+ (JSON/XML)
+- **CycloneDX** 1.4+ (JSON/XML)
+
+**Features:**
+- Automatic SBOM parsing and validation
+- Real-time vulnerability lookup via OSV.dev API
+- Severity-based filtering (CRITICAL, HIGH, MEDIUM, LOW)
+- CVE/GHSA identifier resolution
+- Compliance reporting
+
+**Validation Process:**
+1. Agent submits SBOM during TPR Phase 2
+2. ARCP parses SBOM and extracts dependencies
+3. Each dependency checked against OSV database
+4. Vulnerabilities categorized by severity
+5. Registration blocked if critical vulnerabilities found
+6. Detailed report provided for remediation
+
+📚 **[Complete SBOM Guide →](./sbom.md)**
+
+### Container Security Scanning
+
+**Image Vulnerability Detection**: Integration with industry-standard container scanners.
+
+**Supported Scanners:**
+- **Trivy**: Comprehensive vulnerability detection
+- **Grype**: Fast and accurate scanning
+
+**Scan Coverage:**
+- Operating system packages (apt, yum, apk, etc.)
+- Application dependencies (npm, pip, maven, etc.)
+- Embedded secrets and credentials
+- License compliance checking
+- Configuration issues
+
+**Integration:**
+- Scanner executed locally or via API
+- Results parsed and categorized
+- Critical findings block registration
+- Scan reports stored for audit trail
+
+📚 **[Complete Container Scanning Guide →](./container-scanning.md)**
+
+### Software Attestation
+
+**Runtime Integrity Verification**: Challenge-response mechanism to prove agent authenticity and integrity.
+
+**Attestation Types:**
+- **TPM Attestation**: Hardware-backed measurements (TPM 2.0)
+- **Software Attestation**: Code and configuration measurements
+
+**Challenge-Response Flow:**
+1. ARCP generates random challenge (nonce)
+2. Agent computes measurements:
+   - Code hashes (source files, binaries)
+   - Configuration hashes
+   - Executable hash
+   - Environment information
+3. Agent signs measurements with private key
+4. ARCP verifies signature and validates measurements
+5. Periodic re-attestation (configurable interval)
+
+**Security Properties:**
+- Tamper detection for code modifications
+- Configuration drift detection
+- Runtime integrity verification
+- Cryptographic proof of identity
+
+📚 **[Complete Attestation Guide →](./attestation.md)**
 
 ---
 
@@ -485,7 +648,22 @@ Monitor the following for security updates:
 
 ---
 
+## 📚 Additional Security Documentation
+
+For detailed implementation guides, see:
+
+- **[Three-Phase Registration (TPR)](./three-phase-registration.md)** - Secure agent onboarding process
+- **[DPoP (Proof-of-Possession)](./dpop.md)** - RFC 9449 token binding
+- **[mTLS (Mutual TLS)](./mtls.md)** - Certificate-based authentication
+- **[SBOM Verification](./sbom.md)** - Dependency vulnerability scanning
+- **[Container Scanning](./container-scanning.md)** - Image security analysis
+- **[Software Attestation](./attestation.md)** - Runtime integrity verification
+- **[JWKS Management](./jwks.md)** - Asymmetric key distribution
+- **[NGINX Deployment](../deployment/nginx.md)** - Reverse proxy configuration for security
+
+---
+
 *This security overview provides a comprehensive understanding of ARCP's security architecture. For implementation details, refer to the individual component documentation and configuration guides.*
 
-**Last Updated:** September 2025  
-**Version:** ARCP 2.0.3
+**Last Updated:** February 16, 2026  
+**Version:** ARCP 2.1.0

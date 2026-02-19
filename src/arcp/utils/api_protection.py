@@ -24,6 +24,7 @@ from ..core.config import config
 from ..core.exceptions import ARCPProblemTypes, ProblemException
 from ..core.middleware import record_auth_attempt
 from ..utils.sessions import get_session_info, get_token_payload, verify_session_pin
+from .dpop import get_dpop_validator
 
 try:
     from ..utils.sessions import get_token_ref_from_request
@@ -117,7 +118,7 @@ async def verify_api_token(
     # Check for authorization header (required for AGENT, ADMIN, ADMIN_PIN)
     if not authorization or not authorization.startswith("Bearer "):
         await log_security_event(
-            "unauthorized_access_attempt",
+            "access.unauthorized_attempt",
             f"Missing or invalid authorization header for {request.url.path}",
             severity="WARNING",
             request=request,
@@ -138,7 +139,7 @@ async def verify_api_token(
         payload = get_token_payload(token)
         if not payload:
             await log_security_event(
-                "invalid_token_access",
+                "access.invalid_token",
                 f"Invalid token used for {request.url.path}",
                 severity="WARNING",
                 request=request,
@@ -171,17 +172,65 @@ async def verify_api_token(
             f"required={required_permission}, permissions={user_permissions}"
         )
 
-        # Special handling for temporary registration tokens
-        if is_temp_token and required_permission == PermissionLevel.AGENT:
-            logger.info(
-                f"Allowing temporary token access to AGENT endpoint: {request.url.path}"
-            )
-            return payload  # Allow temp tokens for agent registration
+        # TPR Enforcement: When Three-Phase Registration is enabled, enforce token audiences
+        if config.FEATURE_THREE_PHASE:
+            token_audience = payload.get("aud", "")
+            token_type = payload.get("token_type", "")
+            request_path = request.url.path
+
+            # Define which paths require which token types
+            # Phase 2: validate_compliance requires temp token with aud=arcp:validate
+            if request_path.endswith("/validate_compliance"):
+                if token_type != "temp" or token_audience != config.TOKEN_AUD_VALIDATE:
+                    logger.warning(
+                        f"TPR enforcement: {request_path} requires temp token with aud={config.TOKEN_AUD_VALIDATE}, "
+                        f"got token_type={token_type}, aud={token_audience}"
+                    )
+                    raise ProblemException(
+                        type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+                        title="Invalid Token for Validation",
+                        status=403,
+                        detail=f"Validation requires temporary token with audience '{config.TOKEN_AUD_VALIDATE}'. "
+                        f"Please request a temp token first via /auth/agent/request_temp_token",
+                        instance=request_path,
+                    )
+                logger.info(f"TPR Phase 2: Valid temp token for {request_path}")
+                return payload
+
+            # Phase 3: /agents/register requires validated token with aud=arcp:register
+            if request_path.endswith("/agents/register"):
+                if (
+                    token_type != "validated"
+                    or token_audience != config.TOKEN_AUD_REGISTER
+                ):
+                    logger.warning(
+                        f"TPR enforcement: {request_path} requires validated token with aud={config.TOKEN_AUD_REGISTER}, "
+                        f"got token_type={token_type}, aud={token_audience}"
+                    )
+                    raise ProblemException(
+                        type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+                        title="Invalid Token for Registration",
+                        status=403,
+                        detail=f"Registration requires validated token with audience '{config.TOKEN_AUD_REGISTER}'. "
+                        f"Please complete validation first via /auth/agent/validate_compliance",
+                        instance=request_path,
+                    )
+                logger.info(
+                    f"TPR Phase 3: Valid validated token for registration of agent {user_id}"
+                )
+                return payload
+        else:
+            # Basic mode: Allow temp tokens for agent registration when TPR is disabled
+            if is_temp_token and required_permission == PermissionLevel.AGENT:
+                logger.info(
+                    f"Basic mode: Allowing temporary token access to AGENT endpoint: {request.url.path}"
+                )
+                return payload  # Allow temp tokens for agent registration
 
         # Check hierarchical permissions
         if not PermissionLevel.can_access(user_role, required_permission):
             await log_security_event(
-                "insufficient_permissions",
+                "access.insufficient_permissions",
                 f"User {user_id} with role {user_role} attempted to access {request.url.path} requiring {required_permission}",
                 severity="WARNING",
                 request=request,
@@ -212,7 +261,7 @@ async def verify_api_token(
                 session = get_session_info(user_id, fingerprint, token_ref)
             if not session:
                 await log_security_event(
-                    "missing_or_mismatched_admin_session",
+                    "access.missing_admin_session",
                     f"Admin user {user_id} missing bound session for {request.url.path}",
                     severity="WARNING",
                     request=request,
@@ -233,7 +282,7 @@ async def verify_api_token(
             PermissionLevel.ADMIN_PIN,
         ]:
             await log_security_event(
-                "privileged_endpoint_access",
+                "access.privileged_endpoint",
                 f"User {user_id} ({user_role}) accessed {required_permission} endpoint: {request.url.path}",
                 severity="INFO",
                 request=request,
@@ -249,7 +298,7 @@ async def verify_api_token(
         raise
     except Exception as e:
         await log_security_event(
-            "token_verification_error",
+            "token.verification_error",
             f"Token verification error for {request.url.path}: {str(e)}",
             severity="ERROR",
             request=request,
@@ -288,7 +337,7 @@ async def verify_pin_access(
 
     if not x_session_pin:
         await log_security_event(
-            "missing_pin_access",
+            "pin.missing_access",
             f"PIN required but not provided for {request.url.path}",
             severity="WARNING",
             request=request,
@@ -306,7 +355,7 @@ async def verify_pin_access(
     try:
         if not verify_session_pin(user_id, x_session_pin):
             await log_security_event(
-                "invalid_pin_access",
+                "pin.invalid_access",
                 f"Invalid PIN provided for {request.url.path}",
                 severity="WARNING",
                 request=request,
@@ -323,7 +372,7 @@ async def verify_pin_access(
             )
 
         await log_security_event(
-            "pin_protected_access",
+            "access.pin_protected",
             f"PIN-protected endpoint {request.url.path} accessed by {user_id}",
             severity="INFO",
             request=request,
@@ -340,7 +389,7 @@ async def verify_pin_access(
         raise
     except Exception as e:
         await log_security_event(
-            "pin_verification_error",
+            "pin.verification_error",
             f"PIN verification error for {request.url.path}: {str(e)}",
             severity="ERROR",
             request=request,
@@ -393,6 +442,136 @@ async def verify_admin_pin(
     payload = await verify_api_token(request, authorization, PermissionLevel.ADMIN)
     # Then verify PIN
     return await verify_pin_access(request, payload, x_session_pin)
+
+
+# ========================================
+# DPoP VERIFICATION DEPENDENCY
+# ========================================
+
+
+async def verify_dpop(
+    request: Request,
+    authorization: str = Header(..., alias="Authorization"),
+    dpop_header: Optional[str] = Header(None, alias="DPoP"),
+) -> Dict[str, Any]:
+    """
+    Verify DPoP proof for sender-constrained tokens.
+
+    Used on endpoints that require proof-of-possession per RFC 9449.
+
+    Flow:
+    1. Verify the access token normally
+    2. If DPoP required and no header, reject
+    3. Extract expected jkt from token's cnf claim
+    4. Validate DPoP proof
+    5. Verify proof's jkt matches token's cnf.jkt
+
+    Args:
+        request: FastAPI request object
+        authorization: Bearer token
+        dpop_header: DPoP proof JWT
+
+    Returns:
+        Token payload with dpop_jkt added
+
+    Raises:
+        ProblemException: If DPoP validation fails
+    """
+    dpop_required = getattr(config, "DPOP_REQUIRED", False)
+    dpop_enabled = getattr(config, "DPOP_ENABLED", True)
+
+    # Verify the token first
+    payload = await verify_api_token(request, authorization, PermissionLevel.AGENT)
+
+    # If DPoP is disabled entirely, just return the payload
+    if not dpop_enabled:
+        return payload
+
+    # Check if DPoP proof is required
+    if dpop_required and not dpop_header:
+        await log_security_event(
+            "dpop.missing_proof",
+            f"DPoP proof required but not provided for {request.url.path}",
+            severity="WARNING",
+            request=request,
+            endpoint=request.url.path,
+        )
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.DPOP_REQUIRED["type"],
+            title=ARCPProblemTypes.DPOP_REQUIRED["title"],
+            status=ARCPProblemTypes.DPOP_REQUIRED["default_status"],
+            detail="This endpoint requires a DPoP proof header",
+            instance=request.url.path,
+        )
+
+    # If no DPoP header and not required, return payload
+    if not dpop_header:
+        return payload
+
+    # Extract expected jkt from token's cnf claim
+    cnf = payload.get("cnf", {})
+    expected_jkt = cnf.get("jkt")
+
+    # If token has no cnf.jkt but DPoP is required, that's an error
+    if dpop_required and not expected_jkt:
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_NOT_DPOP_BOUND["type"],
+            title=ARCPProblemTypes.TOKEN_NOT_DPOP_BOUND["title"],
+            status=ARCPProblemTypes.TOKEN_NOT_DPOP_BOUND["default_status"],
+            detail="Access token does not have DPoP binding (missing cnf.jkt)",
+            instance=request.url.path,
+        )
+
+    # Get full request URI
+    # Handle both HTTP and HTTPS (proxy may set X-Forwarded-Proto)
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host", request.url.netloc)
+    http_uri = f"{scheme}://{host}{request.url.path}"
+    http_method = request.method
+
+    # Get access token from Authorization header
+    access_token = authorization.replace("Bearer ", "")
+
+    # Validate DPoP proof
+    validator = get_dpop_validator()
+    result = await validator.validate_proof(
+        dpop_header=dpop_header,
+        http_method=http_method,
+        http_uri=http_uri,
+        access_token=access_token,
+        expected_jkt=expected_jkt,
+    )
+
+    if not result.valid:
+        await log_security_event(
+            "dpop.validation_failed",
+            f"DPoP validation failed: {result.error_detail}",
+            severity="WARNING",
+            request=request,
+            endpoint=request.url.path,
+            error=result.error.value if result.error else "unknown",
+        )
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.DPOP_INVALID["type"],
+            title=ARCPProblemTypes.DPOP_INVALID["title"],
+            status=ARCPProblemTypes.DPOP_INVALID["default_status"],
+            detail=result.error_detail or "DPoP proof validation failed",
+            instance=request.url.path,
+        )
+
+    # Add DPoP info to payload
+    payload["dpop_jkt"] = result.jkt
+    payload["dpop_validated"] = True
+
+    logger.debug(
+        f"DPoP proof validated for {request.url.path}, jkt={result.jkt[:16]}..."
+    )
+
+    return payload
+
+
+# Dependency for DPoP-protected endpoints
+RequireDPoP = Depends(verify_dpop)
 
 
 # Dependency objects - these will be used directly
@@ -537,3 +716,197 @@ def require_permission(required_permission: str) -> Callable:
 def check_endpoint_access(user_role: str, endpoint_permission: str) -> bool:
     """Check if a user role can access an endpoint requiring specific permission."""
     return PermissionLevel.can_access(user_role, endpoint_permission)
+
+
+# ========== TPR Token Dependencies ==========
+
+
+async def verify_temp_token(
+    request: Request, authorization: str = Header(None, alias="Authorization")
+) -> Dict[str, Any]:
+    """
+    Verify temporary token (Phase 1 → Phase 2).
+
+    Validates that the token:
+    - Is a valid Bearer token
+    - Has audience = arcp:validate
+    - Has token_type = temp
+    - Is not expired
+
+    Args:
+        request: FastAPI request
+        authorization: Authorization header
+
+    Returns:
+        Token payload with agent information
+
+    Raises:
+        ProblemException: If token is invalid or wrong type
+
+    Usage:
+        @router.post("/validate_compliance")
+        async def validate(
+            current_token: Dict = Depends(verify_temp_token)
+        ):
+            agent_id = current_token["agent_id"]
+            ...
+    """
+    # Check for authorization header
+    if not authorization or not authorization.startswith("Bearer "):
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.AUTHENTICATION_FAILED["type"],
+            title="Missing or invalid authorization",
+            status=401,
+            detail="Bearer token required",
+            instance=request.url.path,
+        )
+
+    token = authorization[7:]  # Remove "Bearer " prefix
+    payload = get_token_payload(token)
+
+    if not payload:
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid token",
+            status=401,
+            detail="Token is invalid or expired",
+            instance=request.url.path,
+        )
+
+    # Check audience
+    aud = payload.get("aud")
+    if aud != config.TOKEN_AUD_VALIDATE:
+        logger.warning(
+            f"Token audience mismatch: expected '{config.TOKEN_AUD_VALIDATE}', got '{aud}'"
+        )
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid token audience",
+            status=403,
+            detail=f"Token audience must be '{config.TOKEN_AUD_VALIDATE}' for validation",
+            instance=request.url.path,
+        )
+
+    # Check token type
+    token_type = payload.get("token_type")
+    if token_type != "temp":
+        logger.warning(f"Token type mismatch: expected 'temp', got '{token_type}'")
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid token type",
+            status=403,
+            detail="Token type must be 'temp' for validation",
+            instance=request.url.path,
+        )
+
+    logger.debug(
+        f"Temp token verified for agent {payload.get('agent_id')} "
+        f"(aud={aud}, type={token_type})"
+    )
+
+    return payload
+
+
+async def verify_validated_token(
+    request: Request, authorization: str = Header(None, alias="Authorization")
+) -> Dict[str, Any]:
+    """
+    Verify validated token (Phase 2 → Phase 3).
+
+    Validates that the token:
+    - Is a valid Bearer token
+    - Has audience = arcp:register
+    - Has token_type = validated
+    - Has validation_id
+    - Is not expired
+
+    Args:
+        request: FastAPI request
+        authorization: Authorization header
+
+    Returns:
+        Token payload with agent and validation information
+
+    Raises:
+        ProblemException: If token is invalid or wrong type
+
+    Usage:
+        @router.post("/agents/register")
+        async def register(
+            current_token: Dict = Depends(verify_validated_token)
+        ):
+            agent_id = current_token["agent_id"]
+            validation_id = current_token["validation_id"]
+            ...
+    """
+    # Check for authorization header
+    if not authorization or not authorization.startswith("Bearer "):
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.AUTHENTICATION_FAILED["type"],
+            title="Missing or invalid authorization",
+            status=401,
+            detail="Bearer token required",
+            instance=request.url.path,
+        )
+
+    token = authorization[7:]  # Remove "Bearer " prefix
+    payload = get_token_payload(token)
+
+    if not payload:
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid token",
+            status=401,
+            detail="Token is invalid or expired",
+            instance=request.url.path,
+        )
+
+    # Check audience
+    aud = payload.get("aud")
+    if aud != config.TOKEN_AUD_REGISTER:
+        logger.warning(
+            f"Token audience mismatch: expected '{config.TOKEN_AUD_REGISTER}', got '{aud}'"
+        )
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid token audience",
+            status=403,
+            detail=f"Token audience must be '{config.TOKEN_AUD_REGISTER}' for registration",
+            instance=request.url.path,
+        )
+
+    # Check token type
+    token_type = payload.get("token_type")
+    if token_type != "validated":
+        logger.warning(f"Token type mismatch: expected 'validated', got '{token_type}'")
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid token type",
+            status=403,
+            detail="Token type must be 'validated' for registration",
+            instance=request.url.path,
+        )
+
+    # Check validation_id exists
+    validation_id = payload.get("validation_id")
+    if not validation_id:
+        logger.error("Validated token missing validation_id")
+        raise ProblemException(
+            type_uri=ARCPProblemTypes.TOKEN_VALIDATION_ERROR["type"],
+            title="Invalid validated token",
+            status=403,
+            detail="Validated token must contain validation_id",
+            instance=request.url.path,
+        )
+
+    logger.debug(
+        f"Validated token verified for agent {payload.get('agent_id')} "
+        f"(aud={aud}, type={token_type}, validation_id={validation_id})"
+    )
+
+    return payload
+
+
+# Convenience dependency instances for FastAPI routes
+RequireTemp = Depends(verify_temp_token)
+RequireValidated = Depends(verify_validated_token)

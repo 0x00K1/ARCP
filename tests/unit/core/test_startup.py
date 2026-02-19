@@ -258,10 +258,12 @@ class TestStartupProcedures:
     @patch("src.arcp.core.startup.initialize_logging")
     @patch("src.arcp.core.startup.start_cleanup_task")
     @patch("src.arcp.core.startup.dashboard")
+    @patch("src.arcp.core.startup.start_validation_worker")
     @patch("asyncio.create_task")
     async def test_startup_procedures_success(
         self,
         mock_create_task,
+        mock_start_validation_worker,
         mock_dashboard,
         mock_start_cleanup,
         mock_init_logging,
@@ -295,6 +297,9 @@ class TestStartupProcedures:
         mock_init_tracing.assert_called_once()
         # validate_configuration is called in __main__.py, not in startup_procedures
         mock_validate_config.assert_not_called()
+
+        # Verify TPR validation workers started
+        mock_start_validation_worker.assert_called_once()
 
         # Verify registry setup
         assert mock_app.state.registry == mock_registry

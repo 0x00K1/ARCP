@@ -35,6 +35,8 @@ os.environ.update(
         "AGENT_KEYS": "test-registration-key-123,test-agent-key-456,test-security-key-789",
         # Azure OpenAI config for tests (even though OpenAI is disabled)
         "AZURE_EMBEDDING_DEPLOYMENT": "text-embedding-ada-002",
+        # Disable Three-Phase Registration by default in tests (enable in specific TPR tests)
+        "ARCP_TPR": "false",
     }
 )
 
@@ -71,9 +73,24 @@ from tests.fixtures.test_helpers import (  # noqa: E402
 
 @pytest.fixture
 def test_client():
-    """FastAPI test client fixture with optimizations for testing."""
-    with TestClient(app) as client:
-        yield client
+    """FastAPI test client fixture with security enforcement disabled for testing.
+
+    DPoP/mTLS enforcement is disabled in tests to allow testing the core
+    logic without requiring cryptographic proofs. Security enforcement
+    is tested separately in dedicated security tests.
+    """
+    from unittest.mock import patch
+
+    from arcp.core.config import config
+
+    with (
+        patch.object(config, "DPOP_REQUIRED", False),
+        patch.object(config, "DPOP_ENABLED", False),
+        patch.object(config, "MTLS_REQUIRED_REMOTE", False),
+        patch.object(config, "MTLS_ENABLED", False),
+    ):
+        with TestClient(app) as client:
+            yield client
 
 
 @pytest.fixture
@@ -176,6 +193,48 @@ def cleanup_metrics():
         pass
 
     yield
+
+
+@pytest.fixture(autouse=True)
+def cleanup_rate_limiters():
+    """Clean up rate limiters between tests to prevent interference."""
+    # Reset rate limiters BEFORE each test
+    try:
+        from arcp.utils import rate_limiter
+
+        # Reset the global storage adapter
+        if rate_limiter._storage:
+            # Clear all buckets in the in-memory fallback
+            for bucket_name in [
+                rate_limiter.RL_BUCKET_LOGIN,
+                rate_limiter.RL_BUCKET_PIN,
+                rate_limiter.RL_BUCKET_GLOBAL,
+            ]:
+                if hasattr(rate_limiter._storage, "_fallback"):
+                    if bucket_name in rate_limiter._storage._fallback:
+                        rate_limiter._storage._fallback[bucket_name] = {}
+    except (ImportError, AttributeError):
+        pass
+
+    yield
+
+    # Reset rate limiters AFTER each test as well
+    try:
+        from arcp.utils import rate_limiter
+
+        # Reset the global storage adapter
+        if rate_limiter._storage:
+            # Clear all buckets in the in-memory fallback
+            for bucket_name in [
+                rate_limiter.RL_BUCKET_LOGIN,
+                rate_limiter.RL_BUCKET_PIN,
+                rate_limiter.RL_BUCKET_GLOBAL,
+            ]:
+                if hasattr(rate_limiter._storage, "_fallback"):
+                    if bucket_name in rate_limiter._storage._fallback:
+                        rate_limiter._storage._fallback[bucket_name] = {}
+    except (ImportError, AttributeError):
+        pass
 
 
 # ================================

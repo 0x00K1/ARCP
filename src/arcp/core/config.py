@@ -10,6 +10,8 @@ import logging
 import os
 import platform
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
     from dotenv import load_dotenv
@@ -18,8 +20,6 @@ try:
 except ImportError:
     # python-dotenv not available, continue without it
     pass
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 
 class ARCPConfig:
@@ -35,7 +35,7 @@ class ARCPConfig:
         """Load configuration from environment variables."""
         # Service Configuration
         self.SERVICE_NAME: str = "ARCP"
-        self.SERVICE_VERSION: str = "2.0.3"
+        self.SERVICE_VERSION: str = "2.1.0"
         self.SERVICE_DESCRIPTION: str = "Agent Registry & Control Protocol"
 
         # Server Configuration
@@ -48,6 +48,14 @@ class ARCPConfig:
         )  # development, testing, production [defaults to development for library usage]
 
         # Security Configuration
+        # TLS/HTTPS Configuration
+        self.TLS_ENABLED: bool = (
+            os.getenv("ARCP_TLS_ENABLED", "false").lower() == "true"
+        )
+        self.TLS_CERT_DIR: str = os.getenv("ARCP_TLS_CERT_DIR", "/app/certs")
+        self.TLS_CERT_FILENAME: str = os.getenv("ARCP_TLS_CERT_FILENAME", "server.crt")
+        self.TLS_KEY_FILENAME: str = os.getenv("ARCP_TLS_KEY_FILENAME", "server.key")
+
         self.ALLOWED_ORIGINS: Optional[str] = os.getenv(
             "ALLOWED_ORIGINS"
         )  # Comma-separated CORS origins [OPTIONAL]
@@ -207,6 +215,231 @@ class ARCPConfig:
         )
         self.AGENT_REGISTRATION_TIMEOUT: int = int(
             os.getenv("AGENT_REGISTRATION_TIMEOUT", "30")
+        )
+
+        # Three-Phase Registration (TPR) Configuration
+        # Feature flag to enable/disable three-phase registration
+        self.FEATURE_THREE_PHASE: bool = (
+            os.getenv("ARCP_TPR", "false").lower() == "true"
+        )
+
+        # Token TTLs (Time To Live) for different phases
+        self.TOKEN_TTL_TEMP: int = int(
+            os.getenv("ARCP_TPR_TOKEN_TTL_TEMP", "900")
+        )  # 15 minutes for temp tokens
+        self.TOKEN_TTL_VALIDATED: int = int(
+            os.getenv("ARCP_TPR_TOKEN_TTL_VALIDATED", "300")
+        )  # 5 minutes for validated tokens
+        self.TOKEN_TTL_ACCESS: int = int(
+            os.getenv("ARCP_TPR_TOKEN_TTL_ACCESS", "3600")
+        )  # 60 minutes for access tokens
+
+        # Token Audiences for different phases
+        self.TOKEN_AUD_VALIDATE: str = os.getenv(
+            "ARCP_TPR_TOKEN_AUD_VALIDATE", "arcp:validate"
+        )
+        self.TOKEN_AUD_REGISTER: str = os.getenv(
+            "ARCP_TPR_TOKEN_AUD_REGISTER", "arcp:register"
+        )
+        self.TOKEN_AUD_OPERATIONS: str = os.getenv(
+            "ARCP_TPR_TOKEN_AUD_OPERATIONS", "arcp:operations"
+        )
+
+        # Validation Configuration
+        self.VALIDATION_TIMEOUT_FAST: int = int(
+            os.getenv("ARCP_TPR_VALIDATION_TIMEOUT_FAST", "3")
+        )  # 3 seconds for fast validation
+        self.VALIDATION_TIMEOUT_FULL: int = int(
+            os.getenv("ARCP_TPR_VALIDATION_TIMEOUT_FULL", "30")
+        )  # 30 seconds for full validation
+
+        # Endpoint Validation Configuration
+        self.ENDPOINT_VALIDATION_ENABLED: bool = (
+            os.getenv("ARCP_TPR_ENDPOINT_VALIDATION", "true").lower() == "true"
+        )
+        self.ENDPOINT_VALIDATION_STRICT: bool = (
+            os.getenv("ARCP_TPR_ENDPOINT_VALIDATION_STRICT", "true").lower() == "true"
+        )
+
+        # Validation mode: "static" (predefined contracts) or "dynamic" (file-based)
+        self.ENDPOINT_VALIDATION_MODE: str = os.getenv(
+            "ARCP_TPR_ENDPOINT_VALIDATION_MODE", "static"
+        ).lower()
+        # Path to endpoint contracts file (YAML) for dynamic mode
+        # Example: "config/endpoint_contracts.yaml"
+        self.ENDPOINT_CONTRACTS_FILE: str = os.getenv(
+            "ARCP_TPR_ENDPOINT_CONTRACTS_FILE", ""
+        )
+
+        # TPR-specific Rate Limits (requests per minute)
+        self.RATE_LIMIT_TEMP_TOKEN: int = int(
+            os.getenv("ARCP_TPR_RATE_LIMIT_TEMP", "5")
+        )  # Temp token requests
+        self.RATE_LIMIT_VALIDATE: int = int(
+            os.getenv("ARCP_TPR_RATE_LIMIT_VALIDATE", "3")
+        )  # Validation requests
+        self.RATE_LIMIT_REGISTER: int = int(
+            os.getenv("ARCP_TPR_RATE_LIMIT_REGISTER", "2")
+        )  # Registration requests
+
+        # Idempotency Configuration
+        self.IDEMPOTENCY_TTL: int = int(
+            os.getenv("ARCP_TPR_IDEMPOTENCY_TTL", "600")
+        )  # 10 minutes for idempotency keys
+
+        # Instance Tracking Configuration
+        self.HEARTBEAT_INTERVAL: int = int(
+            os.getenv("ARCP_TPR_HEARTBEAT_INTERVAL", "15")
+        )  # 15 seconds heartbeat interval
+        self.INSTANCE_TTL_MULTIPLIER: int = int(
+            os.getenv("ARCP_TPR_INSTANCE_TTL_MULT", "3")
+        )  # Instance TTL = heartbeat interval * multiplier
+
+        # Validation Worker Configuration
+        self.VALIDATION_QUEUE_MAX_SIZE: int = int(
+            os.getenv("ARCP_TPR_VALIDATION_QUEUE_MAX", "1000")
+        )  # Maximum validation queue size
+        self.VALIDATION_WORKER_COUNT: int = int(
+            os.getenv("ARCP_TPR_VALIDATION_WORKERS", "4")
+        )  # Number of validation worker tasks
+
+        # Enable asymmetric JWT signing with key rotation
+        self.JWKS_ENABLED: bool = os.getenv("JWKS_ENABLED", "false").lower() == "true"
+        # Algorithm for asymmetric signing: EdDSA (Ed25519) or ES256 (P-256)
+        self.JWKS_ALGORITHM: str = os.getenv("JWKS_ALGORITHM", "EdDSA")
+        # Days between automatic key rotation (default: 30 days)
+        self.JWKS_ROTATION_DAYS: int = int(os.getenv("JWKS_ROTATION_DAYS", "30"))
+        # Days old keys remain valid after rotation for graceful transition
+        self.JWKS_OVERLAP_DAYS: int = int(os.getenv("JWKS_OVERLAP_DAYS", "7"))
+        # ARCP issuer URL for token claims and discovery
+        self.ARCP_ISSUER: str = os.getenv("ARCP_ISSUER", "https://arcp.example.com")
+
+        # Require DPoP proofs for token-protected endpoints
+        self.DPOP_REQUIRED: bool = os.getenv("DPOP_REQUIRED", "false").lower() == "true"
+        # Accept DPoP proofs when present (even if not required)
+        self.DPOP_ENABLED: bool = os.getenv("DPOP_ENABLED", "true").lower() == "true"
+        # DPoP proof validity window in seconds (default: 2 minutes)
+        self.DPOP_PROOF_TTL: int = int(os.getenv("DPOP_PROOF_TTL", "120"))
+        # Allowed clock skew for DPoP iat validation in seconds
+        self.DPOP_CLOCK_SKEW: int = int(os.getenv("DPOP_CLOCK_SKEW", "60"))
+        # Comma-separated list of allowed DPoP signing algorithms
+        dpop_algos = os.getenv("DPOP_ALGORITHMS", "EdDSA,ES256")
+        self.DPOP_ALGORITHMS: List[str] = [
+            a.strip() for a in dpop_algos.split(",") if a.strip()
+        ]
+
+        # Enable mTLS certificate binding
+        self.MTLS_ENABLED: bool = os.getenv("MTLS_ENABLED", "false").lower() == "true"
+        # Require mTLS for remote agents (local agents exempt)
+        self.MTLS_REQUIRED_REMOTE: bool = (
+            os.getenv("MTLS_REQUIRED_REMOTE", "true").lower() == "true"
+        )
+        # Header name from reverse proxy containing client certificate
+        # Common values: X-Client-Cert (Nginx), X-SSL-Client-Cert (Apache)
+        self.MTLS_CERT_HEADER: str = os.getenv("MTLS_CERT_HEADER", "X-Client-Cert")
+        # Whether to verify certificate chain against CA bundle
+        self.MTLS_VERIFY_CHAIN: bool = (
+            os.getenv("MTLS_VERIFY_CHAIN", "false").lower() == "true"
+        )
+        # Path to CA certificate bundle for chain verification (optional)
+        self.MTLS_CA_BUNDLE: Optional[str] = os.getenv("MTLS_CA_BUNDLE")
+        # Enable certificate revocation checking (OCSP/CRL)
+        self.MTLS_CHECK_REVOCATION: bool = (
+            os.getenv("MTLS_CHECK_REVOCATION", "false").lower() == "true"
+        )
+        # OCSP request timeout in seconds
+        self.MTLS_OCSP_TIMEOUT: int = int(os.getenv("MTLS_OCSP_TIMEOUT", "5"))
+        # CRL cache TTL in seconds (default: 1 hour)
+        self.MTLS_CRL_CACHE_TTL: int = int(os.getenv("MTLS_CRL_CACHE_TTL", "3600"))
+        # CRL fetch timeout in seconds
+        self.MTLS_CRL_TIMEOUT: int = int(os.getenv("MTLS_CRL_TIMEOUT", "10"))
+        # Allow request if revocation check fails (soft-fail mode)
+        self.MTLS_REVOCATION_SOFT_FAIL: bool = (
+            os.getenv("MTLS_REVOCATION_SOFT_FAIL", "true").lower() == "true"
+        )
+
+        # Enable SBOM verification during agent registration
+        self.SBOM_VERIFICATION_ENABLED: bool = (
+            os.getenv("SBOM_VERIFICATION_ENABLED", "false").lower() == "true"
+        )
+        # Require SBOM for all agent registrations
+        self.SBOM_REQUIRED: bool = os.getenv("SBOM_REQUIRED", "false").lower() == "true"
+        # Supported SBOM formats: cyclonedx, spdx
+        sbom_formats = os.getenv("SBOM_ALLOWED_FORMATS", "cyclonedx,spdx")
+        self.SBOM_ALLOWED_FORMATS: List[str] = [
+            f.strip().lower() for f in sbom_formats.split(",") if f.strip()
+        ]
+        # Fail registration if critical vulnerabilities found
+        self.SBOM_FAIL_ON_CRITICAL: bool = (
+            os.getenv("SBOM_FAIL_ON_CRITICAL", "true").lower() == "true"
+        )
+        # Fail registration if high-severity vulnerabilities found
+        self.SBOM_FAIL_ON_HIGH: bool = (
+            os.getenv("SBOM_FAIL_ON_HIGH", "false").lower() == "true"
+        )
+        # Enable vulnerability checking via OSV API
+        self.SBOM_VULNERABILITY_CHECK: bool = (
+            os.getenv("SBOM_VULNERABILITY_CHECK", "true").lower() == "true"
+        )
+        # Cache vulnerability results for N seconds (default: 1 hour)
+        self.SBOM_VULNERABILITY_CACHE_TTL: int = int(
+            os.getenv("SBOM_VULNERABILITY_CACHE_TTL", "3600")
+        )
+        # OSV API URL for vulnerability checking (default: public OSV API)
+        self.OSV_API_URL: str = os.getenv("SBOM_OSV_API_URL", "https://api.osv.dev/v1")
+        # OSV API timeout in seconds
+        self.OSV_API_TIMEOUT: int = int(os.getenv("SBOM_OSV_API_TIMEOUT", "30"))
+
+        # Enable container image scanning
+        self.CONTAINER_SCAN_ENABLED: bool = (
+            os.getenv("CONTAINER_SCAN_ENABLED", "false").lower() == "true"
+        )
+        # Require container scan for containerized agents
+        self.CONTAINER_SCAN_REQUIRED: bool = (
+            os.getenv("CONTAINER_SCAN_REQUIRED", "false").lower() == "true"
+        )
+        # Preferred scanner: trivy, grype, or auto (auto-detect)
+        self.CONTAINER_SCANNER: str = os.getenv("CONTAINER_SCANNER", "auto").lower()
+        # Fail if critical vulnerabilities found
+        self.CONTAINER_SCAN_FAIL_ON_CRITICAL: bool = (
+            os.getenv("CONTAINER_SCAN_FAIL_ON_CRITICAL", "true").lower() == "true"
+        )
+        # Fail if high-severity vulnerabilities found
+        self.CONTAINER_SCAN_FAIL_ON_HIGH: bool = (
+            os.getenv("CONTAINER_SCAN_FAIL_ON_HIGH", "false").lower() == "true"
+        )
+        # Fail if secrets are detected in image
+        self.CONTAINER_SCAN_FAIL_ON_SECRETS: bool = (
+            os.getenv("CONTAINER_SCAN_FAIL_ON_SECRETS", "true").lower() == "true"
+        )
+        # Scan timeout in seconds
+        self.CONTAINER_SCAN_TIMEOUT: int = int(
+            os.getenv("CONTAINER_SCAN_TIMEOUT", "300")
+        )
+        # Cache scan results for N seconds (default: 1 hour)
+        self.CONTAINER_SCAN_CACHE_TTL: int = int(
+            os.getenv("CONTAINER_SCAN_CACHE_TTL", "3600")
+        )
+
+        # Enable runtime attestation
+        self.ATTESTATION_ENABLED: bool = (
+            os.getenv("ATTESTATION_ENABLED", "false").lower() == "true"
+        )
+        # Require attestation for agent registration
+        self.ATTESTATION_REQUIRED: bool = (
+            os.getenv("ATTESTATION_REQUIRED", "false").lower() == "true"
+        )
+        # Default attestation type: software, tpm
+        self.ATTESTATION_TYPE: str = os.getenv("ATTESTATION_TYPE", "software").lower()
+        # Challenge validity period in seconds (default: 5 minutes)
+        self.ATTESTATION_CHALLENGE_TTL: int = int(
+            os.getenv("ATTESTATION_CHALLENGE_TTL", "300")
+        )
+        # Re-attestation interval in seconds (default: 1 hour)
+        self.ATTESTATION_INTERVAL: int = int(os.getenv("ATTESTATION_INTERVAL", "3600"))
+        # Clock skew tolerance in seconds for timestamp validation
+        self.ATTESTATION_CLOCK_SKEW: int = int(
+            os.getenv("ATTESTATION_CLOCK_SKEW", "300")
         )
 
         # Agent Registration Keys Configuration [OPTIONAL]
@@ -399,6 +632,11 @@ class ARCPConfig:
         if not agent_types_from_env or agent_types_from_env.strip() == "":
             missing.append(
                 "ALLOWED_AGENT_TYPES (comma-separated list of agent types, e.g., 'security,monitoring,automation')"
+            )
+        elif len(self.ALLOWED_AGENT_TYPES) < 1:
+            # Parsed list is empty (e.g., value was just commas: ",,,")
+            missing.append(
+                "ALLOWED_AGENT_TYPES (must contain at least one valid agent type after parsing)"
             )
         elif len(self.ALLOWED_AGENT_TYPES) > 100:
             missing.append(

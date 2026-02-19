@@ -27,6 +27,13 @@ class TokenMintRequest(BaseModel):
     agent_key_hash: Optional[str] = Field(
         None, description="Hash of agent key for validation"
     )
+    aud: Optional[str] = Field(
+        None,
+        description="Token audience for TPR flow (arcp:validate, arcp:register, arcp:operations)",
+    )
+    token_type: Optional[str] = Field(
+        None, description="Token type (temp, validated, access)"
+    )
 
     @validator("user_id")
     def validate_user_id(cls, v: str) -> str:

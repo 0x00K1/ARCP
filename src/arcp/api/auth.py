@@ -7,13 +7,16 @@ import secrets
 import time
 from datetime import datetime, timedelta
 from functools import wraps
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Request
+from fastapi.responses import JSONResponse
 
 from ..core.config import config
 from ..core.dependencies import get_registry
 from ..core.exceptions import (
     ARCPProblemTypes,
+    ProblemException,
     authentication_failed_problem,
     create_problem_response,
     handle_exception_with_problem_details,
@@ -26,6 +29,12 @@ from ..core.exceptions import (
 from ..core.middleware import record_auth_attempt, require_rate_limit_check
 from ..core.registry import AgentRegistry
 from ..core.token_service import TokenService, get_token_service
+from ..core.validation import (
+    enqueue_validation,
+    get_validation_context,
+    get_validation_result,
+    store_validation_context,
+)
 from ..models.auth import (
     LoginRequest,
     LoginResponse,
@@ -34,7 +43,8 @@ from ..models.auth import (
     VerifyPinRequest,
 )
 from ..models.token import TokenMintRequest
-from ..utils.api_protection import RequireAdmin
+from ..models.validation import ValidationRequest, ValidationStatusResponse
+from ..utils.api_protection import RequireAdmin, verify_temp_token
 from ..utils.auth_logging import (
     log_login_attempt,
     log_security_event,
@@ -42,6 +52,7 @@ from ..utils.auth_logging import (
 )
 from ..utils.logging import log_performance
 from ..utils.rate_limiter import get_client_identifier
+from ..utils.security_enforcement import extract_security_bindings
 from ..utils.sessions import (
     clear_session_data,
     get_session_info,
@@ -237,15 +248,17 @@ async def request_temp_token(
             "agent_type": request.agent_type,
             "role": "agent",  # Give temporary tokens agent role
             "temp_registration": True,
+            "aud": config.TOKEN_AUD_VALIDATE,  # Set audience for validate compliance endpoint
+            "token_type": "temp",  # Mark as temporary token
             "used_key": request.agent_key[:8] + "...",  # Store partial key for tracking
             "agent_key_hash": hashlib.sha256(
                 request.agent_key.encode()
             ).hexdigest(),  # Store full key hash for validation
         }
 
-        # Create temporary token with shorter expiration (15 minutes)
+        # Create temporary token with configurable expiration
         temp_token = registry.create_access_token(
-            data=temp_token_data, expires_delta=timedelta(minutes=15)
+            data=temp_token_data, expires_delta=timedelta(seconds=config.TOKEN_TTL_TEMP)
         )
 
         logger.info(
@@ -265,7 +278,7 @@ async def request_temp_token(
         resp = TempTokenResponse(
             temp_token=temp_token,
             token_type="bearer",
-            expires_in=900,  # 15 minutes
+            expires_in=config.TOKEN_TTL_TEMP,
             message="Temporary token issued. Use this token to complete agent registration.",
         )
         # Light visibility into in-memory stores for debugging purposes
@@ -280,6 +293,283 @@ async def request_temp_token(
         )
     finally:
         await record_auth_attempt(http_request, success, "login")
+
+
+@router.post("/agent/validate_compliance")
+@log_performance("auth_validate_compliance")
+async def validate_compliance(
+    request: ValidationRequest,
+    http_request: Request,
+    current_token: dict = Depends(verify_temp_token),
+    _: None = Depends(_rate_limit_general),
+    dpop_header: Optional[str] = Header(None, alias="DPoP"),
+    registry: AgentRegistry = Depends(get_registry),
+):
+    """
+    Phase 2: Validate agent compliance before registration.
+
+    Requires temp token with aud=arcp:validate. Performs:
+    - Fast security checks (< 1s)
+    - Full endpoint contract validation
+    - Capability verification
+    - Security binding creation
+
+    Returns validated token (5min, single-use) for registration.
+    """
+    # Check feature flag
+    if not config.FEATURE_THREE_PHASE:
+        return create_problem_response(
+            problem_type=ARCPProblemTypes.FEATURE_DISABLED,
+            detail="Three-phase registration is not enabled",
+            request=http_request,
+        )
+
+    # Verify agent_id matches token
+    if current_token.get("agent_id") != request.agent_id:
+        return invalid_input_problem(
+            "agent_id", "agent_id in request must match token", http_request
+        )
+
+    try:
+        # ========================================
+        # SECURITY ENFORCEMENT: DPoP and mTLS
+        # When DPOP_REQUIRED=true or MTLS_REQUIRED_REMOTE=true,
+        # reject requests that don't provide proper credentials.
+        # ========================================
+
+        # Get authorization header for DPoP validation
+        authorization = http_request.headers.get("Authorization", "")
+
+        try:
+            # This will raise ProblemException if required security is missing
+            security_bindings = await extract_security_bindings(
+                request=http_request,
+                authorization=authorization,
+                dpop_header=dpop_header,
+            )
+
+            # Store bindings on request for later use in token creation
+            if security_bindings.get("dpop_jkt"):
+                request.dpop_jkt = security_bindings["dpop_jkt"]
+                logger.info(
+                    f"DPoP binding enforced for {request.agent_id}: jkt={request.dpop_jkt[:16]}..."
+                )
+
+            if security_bindings.get("mtls_spki"):
+                request.mtls_spki = security_bindings["mtls_spki"]
+                logger.info(
+                    f"mTLS binding enforced for {request.agent_id}: spki={request.mtls_spki[:16]}..."
+                )
+
+        except ProblemException:
+            # Re-raise security enforcement errors
+            raise
+
+        logger.info(
+            f"Validation compliance request for agent {request.agent_id} "
+            f"(type={request.agent_type}, endpoint={request.endpoint})"
+        )
+
+        # Extract and attach client IP to request for audit logging
+        client_ip = None
+        if hasattr(http_request, "client") and http_request.client:
+            client_ip = http_request.client.host
+        if client_ip:
+            request.client_ip = client_ip
+
+        # Enqueue validation
+        validation_id = await enqueue_validation(request)
+
+        await store_validation_context(
+            validation_id,
+            {
+                "agent_id": request.agent_id,
+                "agent_type": request.agent_type,
+                "dpop_jkt": getattr(request, "dpop_jkt", None),
+                "mtls_spki": getattr(request, "mtls_spki", None),
+            },
+        )
+
+        logger.info(
+            f"Validation {validation_id} enqueued for {request.agent_id}, "
+            f"returning 202 Accepted"
+        )
+
+        # Build polling URL
+        base_url = str(http_request.base_url).rstrip("/")
+        polling_url = f"{base_url}/auth/agent/validation/{validation_id}"
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "pending",
+                "validation_id": validation_id,
+                "message": "Validation in progress. Poll the status endpoint for results.",
+                "polling_url": polling_url,
+                "retry_after": 2,  # Suggested polling interval in seconds
+            },
+            headers={
+                "Location": polling_url,
+                "Retry-After": "2",
+            },
+        )
+
+    except asyncio.QueueFull:
+        logger.error(f"Validation queue full, rejecting {request.agent_id}")
+        return create_problem_response(
+            problem_type=ARCPProblemTypes.RATE_LIMIT_EXCEEDED,
+            detail="Validation queue is full, please try again later",
+            request=http_request,
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Validation compliance error for {request.agent_id}: {e}", exc_info=True
+        )
+        return handle_exception_with_problem_details(
+            logger, "Validation compliance", e, agent_id=request.agent_id
+        )
+
+
+@router.get(
+    "/agent/validation/{validation_id}", response_model=ValidationStatusResponse
+)
+@log_performance("auth_validation_status")
+async def get_validation_status(
+    validation_id: str,
+    http_request: Request,
+    current_token: dict = Depends(verify_temp_token),
+    _: None = Depends(_rate_limit_general),
+    registry: AgentRegistry = Depends(get_registry),
+):
+    """
+    Poll validation status and retrieve validated token when complete.
+
+    Returns:
+    - 200 with status="pending" if validation is still in progress
+    - 200 with status="passed" and validated_token if validation succeeded
+    - 200 with status="failed" and error details if validation failed
+    - 404 if validation_id not found
+    - 410 Gone if validation expired
+
+    Storage Separation:
+    - validation_results: Contains ValidationResult (status, errors, binding) - written by worker
+    - validation_contexts: Contains security bindings (dpop_jkt, mtls_spki) - written by HTTP handler
+    """
+    # Get validation result (contains status, agent_id, errors, binding, etc.)
+    result = await get_validation_result(validation_id)
+
+    # Get security context (contains dpop_jkt, mtls_spki from HTTP request)
+    security_context = await get_validation_context(validation_id)
+
+    if result is None:
+        # Check if security context exists (validation was started but not yet processed)
+        if security_context is None:
+            return create_problem_response(
+                ARCPProblemTypes.NOT_FOUND,
+                f"Validation {validation_id} not found or expired",
+                status=404,
+                instance=http_request.url.path,
+            )
+
+        # Validation enqueued but not yet started by worker
+        return ValidationStatusResponse(
+            status="pending",
+            validation_id=validation_id,
+            message="Validation in progress",
+            retry_after=2,
+        )
+
+    # Verify the requesting agent owns this validation (agent_id is in result, not context)
+    if result.agent_id != current_token.get("agent_id"):
+        return create_problem_response(
+            ARCPProblemTypes.FORBIDDEN,
+            "Not authorized to access this validation",
+            status=403,
+            instance=http_request.url.path,
+        )
+
+    if result.status == "pending":
+        # Use getattr for backward compatibility with old results
+        current_step = getattr(result, "current_step", None)
+        return ValidationStatusResponse(
+            status="pending",
+            validation_id=validation_id,
+            message="Validation in progress",
+            retry_after=2,
+            current_step=current_step,
+            progress=current_step if current_step else "Initializing validation...",
+        )
+
+    if result.status != "passed":
+        # Validation failed
+        logger.warning(
+            f"Validation {validation_id} failed: "
+            f"{len(result.errors)} errors, {len(result.warnings)} warnings"
+        )
+
+        return ValidationStatusResponse(
+            status="failed",
+            validation_id=validation_id,
+            message="Validation failed",
+            errors=result.errors,
+            warnings=result.warnings,
+            endpoint_checks=result.endpoint_checks,
+            duration_ms=result.duration_ms,
+        )
+
+    # Validation passed - issue validated token
+    # agent_id comes from validation_results (set by worker from the request)
+    agent_id = result.agent_id
+
+    validated_token_data = {
+        "sub": agent_id,
+        "agent_id": agent_id,
+        "aud": config.TOKEN_AUD_REGISTER,
+        "token_type": "validated",
+        "validation_id": validation_id,
+        "role": "agent",
+        "bound_to": result.binding.model_dump() if result.binding else {},
+    }
+
+    # Add security bindings from context (dpop_jkt, mtls_spki captured at request time)
+    if security_context:
+        if security_context.get("dpop_jkt"):
+            validated_token_data["cnf"] = {"jkt": security_context["dpop_jkt"]}
+        if security_context.get("mtls_spki"):
+            cnf = validated_token_data.get("cnf", {})
+            cnf["x5t#S256"] = security_context["mtls_spki"]
+            validated_token_data["cnf"] = cnf
+
+    validated_token = registry.create_access_token(
+        data=validated_token_data,
+        expires_delta=timedelta(seconds=config.TOKEN_TTL_VALIDATED),
+    )
+
+    logger.info(
+        f"Validated token issued for {agent_id}: {validation_id} "
+        f"(duration: {result.duration_ms}ms)"
+    )
+
+    # Log security event
+    await log_security_event(
+        "validation.passed",
+        f"Agent {agent_id} passed validation",
+        severity="INFO",
+        request=http_request,
+        agent_id=agent_id,
+        validation_id=validation_id,
+        duration_ms=result.duration_ms,
+    )
+
+    return ValidationStatusResponse(
+        status="passed",
+        validation_id=validation_id,
+        message="Validation passed",
+        validated_token=validated_token,
+        expires_in=config.TOKEN_TTL_VALIDATED,
+        duration_ms=result.duration_ms,
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -580,7 +870,7 @@ async def set_pin(
 
                 # Log security event for fingerprint mismatch
                 await log_security_event(
-                    "fingerprint_mismatch",
+                    "session.fingerprint_mismatch",
                     f"Client fingerprint mismatch during PIN set for user {user_id}",
                     severity="WARN",
                     request=request,
@@ -667,7 +957,7 @@ async def verify_pin(
 
                 # Log IP change event
                 await log_security_event(
-                    "ip_change",
+                    "session.ip_change",
                     f"IP address change detected for user {user_id}: {session['ip']} -> {current_ip} | client={client_id[:16]}",
                     severity="INFO",
                     request=request,
@@ -683,7 +973,7 @@ async def verify_pin(
 
                 # Log user agent change event
                 await log_security_event(
-                    "user_agent_change",
+                    "session.user_agent_change",
                     f"User agent change detected for user {user_id}",
                     severity="INFO",
                     request=request,
@@ -701,7 +991,7 @@ async def verify_pin(
 
                     # Log security event for fingerprint mismatch
                     await log_security_event(
-                        "fingerprint_mismatch",
+                        "session.fingerprint_mismatch",
                         f"Client fingerprint mismatch during PIN verification for user {user_id}",
                         severity="WARN",
                         request=request,
@@ -720,7 +1010,7 @@ async def verify_pin(
 
                 # Log security event for missing fingerprint
                 await log_security_event(
-                    "missing_fingerprint",
+                    "session.missing_fingerprint",
                     f"Missing client fingerprint for user {user_id}",
                     severity="WARN",
                     request=request,

@@ -6,6 +6,7 @@ We provide security updates for the following versions of ARCP:
 
 | Version | Supported |
 | ------- | --------- |
+| 2.1.x   | ✅        |
 | 2.0.x   | ✅        |
 | 1.x.x   | ❌        |
 

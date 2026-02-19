@@ -2,6 +2,8 @@
 
 This comprehensive guide shows you how to build agents that integrate with ARCP. You'll learn the complete agent lifecycle, from registration to communication, with working examples.
 
+> **💡 Pro Tip:** Make your agents AI-discoverable by adding rich context! See the [AI Context Guide](ai-context.md) to learn how AI systems can automatically discover and orchestrate your agents.
+
 ## 🎯 What is an ARCP Agent?
 
 An ARCP agent is any service or application that:
@@ -1114,9 +1116,10 @@ networks:
 
 Now that you understand agent development:
 
-1. **[Client Library Guide](client-library.md)** - Learn to use the ARCP client library
-2. **[API Reference](../api-reference/rest-api.md)** - Complete API documentation
-3. **[WebSocket API Reference](../api-reference/websocket-api.md)** - Real-time communication
+1. **[AI Context Guide](ai-context.md)** - Make your agent AI-discoverable with rich context
+2. **[Client Library Guide](client-library.md)** - Learn to use the ARCP client library
+3. **[API Reference](../api-reference/rest-api.md)** - Complete API documentation
+4. **[WebSocket API Reference](../api-reference/websocket-api.md)** - Real-time communication
 
 ## 🆘 Troubleshooting
 

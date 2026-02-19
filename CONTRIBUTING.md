@@ -131,7 +131,7 @@ poetry run isort src/ tests/
 # Lint code
 poetry run flake8 src/ tests/
 
-# Packeges security scan
+# Packages security scan (requires authentication)
 poetry run safety scan --output screen
 ```
 
@@ -157,8 +157,8 @@ All code style is configured in:
 pytest
 
 # Run specific test types
-pytest tests/unit/           # Unit tests
-pytest tests/integration/    # Integration tests
+pytest tests/unit/          # Unit tests
+pytest tests/integration/   # Integration tests
 pytest tests/e2e/           # End-to-end tests
 pytest tests/performance/   # Performance tests
 pytest tests/security/      # Security tests
@@ -190,6 +190,7 @@ pytest --cov=arcp --cov-report=html
 2. **User Guides**: Step-by-step instructions
 3. **Developer Guides**: Technical implementation details
 4. **Deployment Guides**: Production setup instructions
+5. **Security Guides**: Security features and best practices
 
 ### Documentation Standards
 

@@ -20,7 +20,17 @@ This directory contains documentation for all problem types that can be returned
 - [Insufficient Permissions](./insufficient-permissions.md) - User lacks required permissions
 - [Forbidden](./forbidden.md) - Access to resource is forbidden
 
-### 🔢 PIN Problems
+### � DPoP (Proof-of-Possession) Problems
+- [DPoP Proof Required](./dpop-required.md) - DPoP proof header is required but missing
+- [DPoP Proof Invalid](./dpop-invalid.md) - DPoP proof validation failed
+- [DPoP Binding Mismatch](./dpop-binding-mismatch.md) - DPoP key doesn't match token binding
+- [Token Not DPoP Bound](./token-not-dpop-bound.md) - Token missing DPoP binding claim
+
+### 🔒 mTLS (Mutual TLS) Problems
+- [Client Certificate Required](./mtls-required.md) - mTLS client certificate is required
+- [Certificate Mismatch](./mtls-binding-mismatch.md) - Client certificate doesn't match token binding
+
+### �🔢 PIN Problems
 - [PIN Required](./pin-required.md) - PIN verification is required
 - [PIN Already Set](./pin-already-set.md) - PIN has already been configured
 - [PIN Not Set](./pin-not-set.md) - PIN must be set before use

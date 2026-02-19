@@ -102,6 +102,130 @@ class TestAgentRegistration:
         assert registration.requirements is not None
         assert registration.policy_tags == ["production", "approved"]
 
+    def test_ai_context_field(self):
+        """Test ai_context field validation and usage."""
+        # Test with valid AI context
+        ai_context_content = """
+        This agent provides data processing capabilities with the following endpoints:
+        - POST /process: Processes data files. Accepts JSON with 'data' field. Returns processed result.
+        - GET /status: Returns agent processing status.
+        - POST /batch: Batch processing endpoint. Accepts array of data items.
+
+        API Schema:
+        {
+            "process": {
+                "input": {"data": "string or object"},
+                "output": {"result": "processed data", "status": "success/error"}
+            }
+        }
+
+        Orchestration guidelines:
+        - Use /process for single items
+        - Use /batch for multiple items (max 100 per request)
+        - Rate limit: 100 requests/minute
+        - Supports streaming for large datasets via WebSocket at /ws/stream
+
+        Integration patterns:
+        - Async processing: POST to /process returns job_id, poll /status/{job_id}
+        - Sync processing: Include 'sync=true' parameter for immediate response
+        """
+
+        registration = AgentRegistration(
+            name="Test Agent",
+            agent_id="test-agent-001",
+            agent_type="testing",
+            endpoint="https://test.example.com/api",
+            context_brief="A test agent with AI context",
+            capabilities=["test", "processing"],
+            owner="Test Owner",
+            public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD6F9H2J4L6M8O0P2R4T6V8X0Z2B4D6F8H0J2L4N6P8R0T2V4X6Z8B0D2F4H6J8L0N2P4R6T8V0X2Z4B6D8F0H2J4L6N8P0R2T4V6X8Z0B2D4F6H8J0L2N4P6R8T0V2X4Z6B8D0F2H4J6L8N0P2R4T6V8X0Z2B4D6 test-minimal-key",
+            version="1.0.0",
+            communication_mode="remote",
+            metadata={"test": True},
+            ai_context=ai_context_content,
+        )
+
+        assert registration.ai_context is not None
+        assert len(registration.ai_context) > 0
+        assert "POST /process" in registration.ai_context
+
+        # Test with None (optional field)
+        registration_without = AgentRegistration(
+            name="Test Agent",
+            agent_id="test-agent-002",
+            agent_type="testing",
+            endpoint="https://test.example.com/api",
+            context_brief="A test agent without AI context",
+            capabilities=["test"],
+            owner="Test Owner",
+            public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD6F9H2J4L6M8O0P2R4T6V8X0Z2B4D6F8H0J2L4N6P8R0T2V4X6Z8B0D2F4H6J8L0N2P4R6T8V0X2Z4B6D8F0H2J4L6N8P0R2T4V6X8Z0B2D4F6H8J0L2N4P6R8T0V2X4Z6B8D0F2H4J6L8N0P2R4T6V8X0Z2B4D6 test-minimal-key",
+            version="1.0.0",
+            communication_mode="remote",
+            metadata={"test": True},
+        )
+
+        assert registration_without.ai_context is None
+
+        # Test with empty string (should be treated as None)
+        registration_empty = AgentRegistration(
+            name="Test Agent",
+            agent_id="test-agent-003",
+            agent_type="testing",
+            endpoint="https://test.example.com/api",
+            context_brief="A test agent with empty AI context",
+            capabilities=["test"],
+            owner="Test Owner",
+            public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD6F9H2J4L6M8O0P2R4T6V8X0Z2B4D6F8H0J2L4N6P8R0T2V4X6Z8B0D2F4H6J8L0N2P4R6T8V0X2Z4B6D8F0H2J4L6N8P0R2T4V6X8Z0B2D4F6H8J0L2N4P6R8T0V2X4Z6B8D0F2H4J6L8N0P2R4T6V8X0Z2B4D6 test-minimal-key",
+            version="1.0.0",
+            communication_mode="remote",
+            metadata={"test": True},
+            ai_context="   ",  # Whitespace only
+        )
+
+        assert registration_empty.ai_context is None
+
+    def test_ai_context_validation(self):
+        """Test ai_context field validation limits."""
+        # Test maximum length validation
+        too_long_context = "x" * 5001
+
+        with pytest.raises(ValidationError) as exc_info:
+            AgentRegistration(
+                name="Test Agent",
+                agent_id="test-agent-long",
+                agent_type="testing",
+                endpoint="https://test.example.com/api",
+                context_brief="A test agent with too long AI context",
+                capabilities=["test"],
+                owner="Test Owner",
+                public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD6F9H2J4L6M8O0P2R4T6V8X0Z2B4D6F8H0J2L4N6P8R0T2V4X6Z8B0D2F4H6J8L0N2P4R6T8V0X2Z4B6D8F0H2J4L6N8P0R2T4V6X8Z0B2D4F6H8J0L2N4P6R8T0V2X4Z6B8D0F2H4J6L8N0P2R4T6V8X0Z2B4D6 test-minimal-key",
+                version="1.0.0",
+                communication_mode="remote",
+                metadata={"test": True},
+                ai_context=too_long_context,
+            )
+
+        assert "too long" in str(exc_info.value).lower()
+
+        # Test valid length at boundary
+        valid_long_context = "x" * 5000
+        registration = AgentRegistration(
+            name="Test Agent",
+            agent_id="test-agent-max",
+            agent_type="testing",
+            endpoint="https://test.example.com/api",
+            context_brief="A test agent with maximum length AI context",
+            capabilities=["test"],
+            owner="Test Owner",
+            public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD6F9H2J4L6M8O0P2R4T6V8X0Z2B4D6F8H0J2L4N6P8R0T2V4X6Z8B0D2F4H6J8L0N2P4R6T8V0X2Z4B6D8F0H2J4L6N8P0R2T4V6X8Z0B2D4F6H8J0L2N4P6R8T0V2X4Z6B8D0F2H4J6L8N0P2R4T6V8X0Z2B4D6 test-minimal-key",
+            version="1.0.0",
+            communication_mode="remote",
+            metadata={"test": True},
+            ai_context=valid_long_context,
+        )
+
+        assert len(registration.ai_context) == 5000
+
     def test_agent_id_validation(self):
         """Test agent ID validation rules."""
         valid_ids = [

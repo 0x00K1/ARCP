@@ -107,20 +107,16 @@ class TestAuthLogging:
 
     async def test_log_login_attempt(self):
         """Test login attempt logging."""
-        with patch("src.arcp.api.dashboard.add_log_entry") as mock_add_log_entry:
-            mock_request = MagicMock(spec=Request)
-            mock_request.client.host = "192.168.1.1"
-
+        with patch("src.arcp.utils.auth_logging.log_admin_login") as mock_log_admin:
+            # Pass client_ip directly instead of relying on request extraction
             await log_login_attempt(
-                success=True, username="test_user", request=mock_request
+                success=True, username="test_user", client_ip="192.168.1.1"
             )
 
-            mock_add_log_entry.assert_called_once_with(
-                "INFO",
-                "Admin login successful: test_user",
-                "auth",
-                event_type="admin_login_success",
-                user_id="test_user",
+            mock_log_admin.assert_called_once_with(
+                username="test_user",
+                success=True,
+                client_ip="192.168.1.1",
             )
 
     async def test_log_session_event(self):
@@ -136,9 +132,8 @@ class TestAuthLogging:
 
             mock_add_log_entry.assert_called_once_with(
                 "INFO",
-                "Session event (session_created): admin",
+                "[SECINFO] Session event (session_created): admin",
                 "auth",
-                event_type="session_created",
                 user_id="admin",
             )
 
@@ -158,8 +153,8 @@ class TestAuthLogging:
             mock_add_log_entry.assert_called_once_with(
                 "WARNING",
                 "Rate limit exceeded for user",
-                "auth",
-                event_type="rate_limit_exceeded",
+                "security",
+                client_ip=None,
                 user_id="suspicious_user",
             )
 

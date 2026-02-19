@@ -346,8 +346,6 @@ def store_session_info(
         pass
 
     try:
-        import asyncio
-
         if not _loop_is_running():
             loop = asyncio.get_event_loop()
             storage = _get_storage()

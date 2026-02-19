@@ -23,6 +23,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
+from ..services import get_redis_service
 from .config import config
 
 
@@ -76,8 +77,6 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         def _connect() -> Optional[Any]:
             try:
                 # Use the centralized Redis service
-                from ..services import get_redis_service
-
                 redis_service = get_redis_service()
                 client = redis_service.get_client()
                 if client is not None:
@@ -88,7 +87,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
             except Exception:
                 return None
 
-        client = await asyncio.get_event_loop().run_in_executor(None, _connect)
+        client = await asyncio.get_running_loop().run_in_executor(None, _connect)
         if client is not None:
             self._redis = client
             # Reset health cache to force a fresh check next call
@@ -110,7 +109,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         ):
             return self._backend_available
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, lambda: self._redis.ping())
             self._backend_available = bool(result)
         except Exception:
@@ -144,7 +143,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
                 elif not isinstance(value, (str, bytes, int, float)):
                     redis_value = str(value)
 
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._redis.hset(bucket, key, redis_value)
                 )
                 # Also mirror to fallback cache for warm failover
@@ -165,7 +164,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         await self._ensure_backend()
         if self._redis is not None:
             try:
-                result = await asyncio.get_event_loop().run_in_executor(
+                result = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._redis.hget(bucket, key)
                 )
                 if result is not None:
@@ -196,7 +195,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         await self._ensure_backend()
         if self._redis is not None:
             try:
-                keys = await asyncio.get_event_loop().run_in_executor(
+                keys = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._redis.hkeys(bucket)
                 )
                 return [k.decode() if isinstance(k, bytes) else str(k) for k in keys]
@@ -214,7 +213,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         await self._ensure_backend()
         if self._redis is not None:
             try:
-                data = await asyncio.get_event_loop().run_in_executor(
+                data = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._redis.hgetall(bucket)
                 )
                 # Convert bytes keys/values to strings
@@ -244,7 +243,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         await self._ensure_backend()
         if self._redis is not None:
             try:
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._redis.hdel(bucket, key)
                 )
             except Exception:
@@ -262,7 +261,7 @@ class StorageAdapter:  # pragma: no cover - thin wrapper
         await self._ensure_backend()
         if self._redis is not None:
             try:
-                result = await asyncio.get_event_loop().run_in_executor(
+                result = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._redis.hexists(bucket, key)
                 )
                 return bool(result)

@@ -1,7 +1,11 @@
 """Authentication logging utilities for ARCP.
 
 Provides convenient functions for logging authentication and security events
-to the dashboard with consistent formatting.
+to both the dashboard (for admin visibility) and the security audit service
+(for forensics, compliance, and SIEM integration).
+
+This module acts as a facade over the security_audit service, providing
+backward-compatible functions while unifying all security event handling.
 """
 
 from typing import Optional
@@ -9,6 +13,22 @@ from typing import Optional
 from fastapi import Request
 
 from ..core.config import config
+from .security_audit import (
+    SecurityEventSeverity,
+    SecurityEventType,
+    get_security_audit_service,
+    log_admin_login,
+    log_agent_event,
+)
+from .security_audit import log_security_event as audit_security_event
+from .security_audit import log_session_event as audit_session_event
+
+
+async def _get_client_ip(request: Optional[Request]) -> Optional[str]:
+    """Extract client IP from request."""
+    if not request:
+        return None
+    return request.client.host if request.client else None
 
 
 async def log_auth_event(
@@ -21,7 +41,7 @@ async def log_auth_event(
     request: Optional[Request] = None,
     **kwargs,
 ):
-    """Log authentication events to the dashboard.
+    """Log authentication events to both dashboard and security audit.
 
     Args:
         level: Log level (INFO, WARNING, ERROR)
@@ -34,25 +54,66 @@ async def log_auth_event(
         **kwargs: Additional context data
     """
     try:
-        # Import here to avoid circular imports
-        from ..api.dashboard import add_log_entry
-
         # Extract client IP from request if not provided
-        if not client_ip and request:
-            client_ip = request.client.host if request.client else "unknown"
+        if not client_ip:
+            client_ip = await _get_client_ip(request)
 
-        # Prepare additional context
-        context = {"event_type": event_type, **kwargs}
+        # Map event type string to SecurityEventType enum
+        event_type_map = {
+            "agent_login_success": SecurityEventType.AUTHENTICATION_SUCCESS,
+            "agent_login_failed": SecurityEventType.AUTHENTICATION_FAILURE,
+            "admin_login_success": SecurityEventType.ADMIN_LOGIN_SUCCESS,
+            "admin_login_failed": SecurityEventType.ADMIN_LOGIN_FAILURE,
+            "logout": SecurityEventType.ADMIN_LOGOUT,
+            "pin_set": SecurityEventType.PIN_SET,
+            "pin_verify_success": SecurityEventType.PIN_VERIFY_SUCCESS,
+            "pin_verify_failed": SecurityEventType.PIN_VERIFY_FAILURE,
+            "pin_verify_no_pin": SecurityEventType.PIN_VERIFY_FAILURE,
+            "session_expired": SecurityEventType.SESSION_EXPIRED,
+            "session_invalidated": SecurityEventType.SESSION_INVALIDATED,
+        }
 
-        # Add identifiers if provided
-        if user_id:
-            context["user_id"] = user_id
-        if agent_id:
-            context["agent_id"] = agent_id
-        if client_ip:
-            context["client_ip"] = client_ip
+        security_event_type = event_type_map.get(event_type)
 
-        await add_log_entry(level, message, "auth", **context)
+        if security_event_type:
+            # Map level to severity
+            severity_map = {
+                "DEBUG": SecurityEventSeverity.DEBUG,
+                "INFO": SecurityEventSeverity.INFO,
+                "WARNING": SecurityEventSeverity.WARNING,
+                "ERROR": SecurityEventSeverity.ERROR,
+            }
+            severity = severity_map.get(level.upper(), SecurityEventSeverity.INFO)
+
+            # Log to security audit service
+            service = get_security_audit_service()
+            await service.log_event(
+                security_event_type,
+                message,
+                agent_id=agent_id,
+                user_id=user_id,
+                client_ip=client_ip,
+                details=kwargs,
+                severity=severity,
+                success="failed" not in event_type.lower(),
+            )
+
+        # Also forward to dashboard for admin visibility
+        try:
+            # Lazy import to avoid circular dependency
+            from ..api.dashboard import add_log_entry
+
+            context = {"event_type": event_type, **kwargs}
+            if user_id:
+                context["user_id"] = user_id
+            if agent_id:
+                context["agent_id"] = agent_id
+            if client_ip:
+                context["client_ip"] = client_ip
+
+            await add_log_entry(level, message, "auth", **context)
+        except Exception:
+            pass  # Dashboard logging is best-effort
 
     except Exception as e:
         # Don't let logging failures break the auth flow
@@ -72,8 +133,20 @@ async def log_login_attempt(
     error_message: Optional[str] = None,
 ):
     """Log login attempts (both admin and agent)."""
+    if not client_ip:
+        client_ip = await _get_client_ip(request)
+
     if success:
         if agent_id:
+            # Agent authentication success
+            await log_agent_event(
+                SecurityEventType.AGENT_REGISTERED,
+                agent_id=agent_id,
+                agent_type=agent_type,
+                client_ip=client_ip,
+                details={"auth_method": "login"},
+            )
+            # Also log to dashboard
             await log_auth_event(
                 "INFO",
                 "agent_login_success",
@@ -81,39 +154,34 @@ async def log_login_attempt(
                 agent_id=agent_id,
                 agent_type=agent_type,
                 client_ip=client_ip,
-                request=request,
             )
         else:
-            await log_auth_event(
-                "INFO",
-                "admin_login_success",
-                f"Admin login successful: {username}",
-                user_id=username,
+            # Admin login success
+            await log_admin_login(
+                username=username or "unknown",
+                success=True,
                 client_ip=client_ip,
-                request=request,
             )
     else:
-        level = "WARNING"
         if agent_id:
-            message = f"Agent authentication failed: {agent_id}"
-            event_type = "agent_login_failed"
-            context = {"agent_id": agent_id, "agent_type": agent_type}
+            # Agent authentication failure
+            await log_auth_event(
+                "WARNING",
+                "agent_login_failed",
+                f"Agent authentication failed: {agent_id}",
+                agent_id=agent_id,
+                agent_type=agent_type,
+                client_ip=client_ip,
+                error=error_message,
+            )
         else:
-            message = f"Admin login failed: {username}"
-            event_type = "admin_login_failed"
-            context = {"username": username}
-
-        if error_message:
-            context["error"] = error_message
-
-        await log_auth_event(
-            level,
-            event_type,
-            message,
-            client_ip=client_ip,
-            request=request,
-            **context,
-        )
+            # Admin login failure
+            await log_admin_login(
+                username=username or "unknown",
+                success=False,
+                client_ip=client_ip,
+                error_message=error_message,
+            )
 
 
 async def log_session_event(
@@ -124,20 +192,44 @@ async def log_session_event(
     **kwargs,
 ):
     """Log session-related events (logout, PIN operations, etc.)."""
+    client_ip = await _get_client_ip(request)
+
+    # Map string event type to SecurityEventType
+    event_type_map = {
+        "logout": SecurityEventType.ADMIN_LOGOUT,
+        "pin_set": SecurityEventType.PIN_SET,
+        "pin_verify_success": SecurityEventType.PIN_VERIFY_SUCCESS,
+        "pin_verify_failed": SecurityEventType.PIN_VERIFY_FAILURE,
+        "pin_verify_no_pin": SecurityEventType.PIN_VERIFY_FAILURE,
+        "session_expired": SecurityEventType.SESSION_EXPIRED,
+        "session_invalidated": SecurityEventType.SESSION_INVALIDATED,
+    }
+
+    security_event_type = event_type_map.get(event_type)
+
     if not message:
         # Generate default messages based on event type
         messages = {
-            "logout": f"[SECINFO] Admin logout: {user_id}",
-            "pin_set": f"[SECINFO] Session PIN set for admin: {user_id}",
-            "pin_verify_success": f"[SECINFO] Successful PIN verification: {user_id}",
-            "pin_verify_failed": f"[SECINFO] Failed PIN verification attempt: {user_id}",
-            "pin_verify_no_pin": f"[SECINFO] PIN verification attempted but no PIN set: {user_id}",
-            "session_expired": f"[SECINFO] Session expired for user: {user_id}",
-            "session_invalidated": f"[SECINFO] Session invalidated for user: {user_id}",
+            "logout": f"Admin logout: {user_id}",
+            "pin_set": f"Session PIN set for admin: {user_id}",
+            "pin_verify_success": f"Successful PIN verification: {user_id}",
+            "pin_verify_failed": f"Failed PIN verification attempt: {user_id}",
+            "pin_verify_no_pin": f"PIN verification attempted but no PIN set: {user_id}",
+            "session_expired": f"Session expired for user: {user_id}",
+            "session_invalidated": f"Session invalidated for user: {user_id}",
         }
         message = messages.get(event_type, f"Session event ({event_type}): {user_id}")
 
-    # Determine log level based on event type
+    # Log to security audit service
+    if security_event_type:
+        await audit_session_event(
+            security_event_type,
+            user_id=user_id,
+            client_ip=client_ip,
+            details=kwargs,
+        )
+
+    # Also forward to dashboard
     warning_events = [
         "pin_verify_failed",
         "pin_verify_no_pin",
@@ -146,9 +238,15 @@ async def log_session_event(
     ]
     level = "WARNING" if event_type in warning_events else "INFO"
 
-    await log_auth_event(
-        level, event_type, message, user_id=user_id, request=request, **kwargs
-    )
+    try:
+        # Lazy import to avoid circular dependency
+        from ..api.dashboard import add_log_entry
+
+        await add_log_entry(
+            level, f"[SECINFO] {message}", "auth", user_id=user_id, **kwargs
+        )
+    except Exception:
+        pass
 
 
 async def log_security_event(
@@ -158,8 +256,32 @@ async def log_security_event(
     request: Optional[Request] = None,
     **kwargs,
 ):
-    """Log security-related events (suspicious activity, fingerprint mismatches, etc.)."""
+    """Log security-related events (suspicious activity, fingerprint mismatches, etc.).
+
+    This function forwards to the unified security_audit service.
+    """
     # Respect SECURITY_LOGGING flag; no-op when disabled
     if not getattr(config, "SECURITY_LOGGING", True):
         return
-    await log_auth_event(severity, event_type, message, request=request, **kwargs)
+
+    client_ip = await _get_client_ip(request)
+
+    # Use the security audit service
+    await audit_security_event(
+        event_type=event_type,
+        message=message,
+        severity=severity,
+        request=request,
+        **kwargs,
+    )
+
+    # Also forward to dashboard
+    try:
+        # Lazy import to avoid circular dependency
+        from ..api.dashboard import add_log_entry
+
+        await add_log_entry(
+            severity, message, "security", client_ip=client_ip, **kwargs
+        )
+    except Exception:
+        pass

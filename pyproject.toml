@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "arcp-py"
-version = "2.0.3"
+version = "2.1.0"
 description = "ARCP (Agent Registry & Control Protocol) is a sophisticated agent orchestration protocol that provides centralized service discovery, registration, communication, and control for distributed agent systems."
 authors = ["Muhannad <01muhannad.a@gmail.com>"]
 license = "Apache-2.0"
@@ -29,7 +29,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = ">=0.115.0,<1.0.0"
+fastapi = ">=0.129.0,<1.0.0"
 uvicorn = {extras = ["standard"], version = ">=0.24.0,<1.0.0"}
 pydantic = ">=2.5.0,<3.0.0"
 PyJWT = ">=2.10.1,<3.0.0"
@@ -53,6 +53,10 @@ wrapt = ">=1.10.0,<2.0.0"
 thrift = ">=0.13.0,<1.0.0"
 importlib-metadata = ">=1.7.0,<7.0.0"
 websockets = ">=11.0.3,<16.0.0"
+cryptography = "^46.0.5"
+aiohttp = ">=3.9.0"
+tpm2-pytss = {version = ">=2.1.0", optional = true}
+starlette = "^0.52.1"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
@@ -97,7 +101,8 @@ generate-setup-file = true
 # Include additional files in the package
 [tool.poetry.extras]
 dev = ["pytest", "pytest-asyncio", "httpx", "aiofiles"]
-all = ["pytest", "pytest-asyncio", "httpx", "aiofiles"]
+tpm = ["tpm2-pytss"]
+all = ["pytest", "pytest-asyncio", "httpx", "aiofiles", "tpm2-pytss"]
 
 [tool.black]
 line-length = 88

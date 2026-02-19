@@ -8,15 +8,27 @@ This example demonstrates all major features of the ARCP client library:
 - Agent registration (with valid credentials)
 - Real-time WebSocket monitoring
 - Agent connection requests
+- AI Context for agent documentation
+- Optional TPR security features (SBOM, attestation)
+- DPoP and mTLS authentication (see demo_agent.py)
 
 Perfect for learning ARCP and as a reference implementation.
 """
 
 import asyncio
 import logging
+import sys
 import uuid
+from pathlib import Path
 
-from arcp import AgentRequirements, ARCPClient, ARCPError
+# Add the project root to sys.path to use local ARCP source
+# This ensures we use the latest local package during development/testing
+_project_root = Path(__file__).resolve().parent.parent.parent
+_src_path = _project_root / "src"
+if str(_src_path) not in sys.path:
+    sys.path.insert(0, str(_src_path))
+
+from arcp import AgentRequirements, ARCPClient, ARCPError  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,12 +40,15 @@ logger = logging.getLogger(__name__)
 class ARCPDemo:
     """Comprehensive ARCP client demonstration"""
 
-    def __init__(self, server_url: str = "http://localhost:8001"):
+    def __init__(
+        self, server_url: str = "http://localhost:8001", verify_ssl: bool = True
+    ):
         self.server_url = server_url
+        self.verify_ssl = verify_ssl
         self.client = None
 
     async def __aenter__(self):
-        self.client = ARCPClient(self.server_url)
+        self.client = ARCPClient(self.server_url, verify_ssl=self.verify_ssl)
         await self.client.__aenter__()
         return self
 
@@ -239,9 +254,9 @@ class ARCPDemo:
                 endpoint="https://demo-agent.example.com",
                 capabilities=["demo", "testing", "examples", "tutorials"],
                 context_brief="A demonstration agent created by the ARCP client demo for testing purposes",
-                version="1.0.0",
+                version="2.1.0",
                 owner="ARCP Demo",
-                public_key="demo-public-key-for-testing-purposes-only",
+                public_key="demo-public-key-for-testing-purposes-only-minimum-32-characters",
                 communication_mode="remote",
                 metadata={
                     "purpose": "demonstration",
@@ -265,7 +280,30 @@ class ARCPDemo:
                     requires_internet=True,
                 ),
                 policy_tags=["demo", "testing"],
+                ai_context="""
+ARCP Demo Agent - AI Context
+
+This is a demonstration agent for testing the ARCP client library.
+
+Capabilities:
+- demo: General demonstration functionality
+- testing: Used for testing ARCP features
+- examples: Provides example usage patterns
+- tutorials: Educational purposes
+
+Endpoints:
+GET /status - Returns agent status
+POST /echo - Echo service for testing
+
+Usage:
+This agent is for demonstration and testing only. Do not use in production.
+""",
                 agent_key=agent_key,
+                # Optional TPR Security Features (v2.1.0):
+                # sbom='...',              # SBOM for vulnerability verification
+                # container_image='...',    # Container image for scanning
+                # is_containerized=False,   # Whether agent runs in container
+                # attestation={...},        # Software attestation evidence
             )
 
             print("   Agent registered successfully!")
@@ -358,10 +396,10 @@ async def main():
     print("=" * 60)
 
     # You can change this URL to point to your ARCP server
-    server_url = "http://localhost:8001"
+    server_url = "https://localhost"
 
     try:
-        async with ARCPDemo(server_url) as demo:
+        async with ARCPDemo(server_url, verify_ssl=False) as demo:
             print(f"\nConnected to ARCP server: {server_url}")
 
             # Run all demo sections
