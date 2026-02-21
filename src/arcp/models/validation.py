@@ -141,7 +141,7 @@ class ValidationRequest(BaseModel):
                 "endpoint": "https://scanner.example.com:8080",
                 "capabilities": ["vulnerability_scan", "compliance_check"],
                 "communication_mode": "remote",
-                "version": "2.1.0",
+                "version": "2.1.1",
             }
         }
 

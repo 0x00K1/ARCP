@@ -103,7 +103,7 @@ async def root(_: dict = RequirePublic):
     """
     return {
         "service": "ARCP",
-        "version": "2.1.0",
+        "version": "2.1.1",
         "status": "healthy",
         "dashboard": "/dashboard",
         "docs": "/docs",

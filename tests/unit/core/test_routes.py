@@ -63,7 +63,7 @@ class TestRootEndpoint:
 
         assert isinstance(result, dict)
         assert result["service"] == "ARCP"
-        assert result["version"] == "2.1.0"
+        assert result["version"] == "2.1.1"
         assert result["status"] == "healthy"
         assert result["dashboard"] == "/dashboard"
         assert result["docs"] == "/docs"

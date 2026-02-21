@@ -10,7 +10,7 @@ services:
         POETRY_VERSION: 1.6.1
         USER_ID: 1000
         GROUP_ID: 1000
-        ARCP_VERSION: 2.1.0
+        ARCP_VERSION: 2.1.1
         ARCP_BUILD_DATE: 20-03-2025
         ARCP_HOST: ${ARCP_HOST:-0.0.0.0}
         ARCP_PORT: ${ARCP_PORT:-8001}
@@ -25,6 +25,8 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
     container_name: arcp
     restart: unless-stopped
+    ports:
+      - "${ARCP_PORT:-8001}:${ARCP_PORT:-8001}"
     expose:
       - "${ARCP_PORT:-8001}"
     environment:
@@ -318,6 +320,8 @@ services:
     image: nginx:alpine
     container_name: arcp-nginx
     restart: unless-stopped
+    profiles:
+      - tls
     ports:
       - "80:80"
       - "443:443"
@@ -558,4 +562,4 @@ networks:
       config:
         - subnet: 172.20.0.0/16
     labels:
-      - "com.docker.compose.network=arcp" 
+      - "com.docker.compose.network=arcp"

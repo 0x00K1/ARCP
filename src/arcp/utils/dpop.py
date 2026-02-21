@@ -400,14 +400,44 @@ class DPoPValidator:
 
         Per RFC 9449, the htu should match the request URI without
         query parameters and fragment.
+
+        When ARCP runs behind a TLS-terminating reverse proxy (e.g. NGINX),
+        the internal request arrives as HTTP while the DPoP proof is built
+        against the external HTTPS URL.  In those cases X-Forwarded-Proto
+        may not always be present (e.g. direct port-8001 access), so we
+        treat http/https as equivalent when the host and path are identical.
+        The security guarantee of DPoP is in the key-binding and endpoint
+        path, not the internal transport scheme.
         """
         proof_parsed = urlparse(proof_htu)
         request_parsed = urlparse(request_uri)
 
-        # Compare scheme, netloc, and path
+        proof_scheme = proof_parsed.scheme.lower()
+        request_scheme = request_parsed.scheme.lower()
+
+        # Schemes are compatible when they are identical, or one is the
+        # TLS variant of the other (http <-> https) — reverse-proxy case.
+        _HTTP_SCHEMES = {"http", "https"}
+        schemes_ok = proof_scheme == request_scheme or (
+            proof_scheme in _HTTP_SCHEMES and request_scheme in _HTTP_SCHEMES
+        )
+
+        # Normalize netloc: strip default ports so that
+        # "localhost:443" == "localhost" and "localhost:80" == "localhost".
+        def _strip_default_port(netloc: str, scheme: str) -> str:
+            default_ports = {"http": "80", "https": "443"}
+            if ":" in netloc:
+                host, port = netloc.rsplit(":", 1)
+                if port == default_ports.get(scheme, ""):
+                    return host.lower()
+            return netloc.lower()
+
+        proof_netloc = _strip_default_port(proof_parsed.netloc, proof_scheme)
+        request_netloc = _strip_default_port(request_parsed.netloc, request_scheme)
+
         return (
-            proof_parsed.scheme.lower() == request_parsed.scheme.lower()
-            and proof_parsed.netloc.lower() == request_parsed.netloc.lower()
+            schemes_ok
+            and proof_netloc == request_netloc
             and proof_parsed.path == request_parsed.path
         )
 

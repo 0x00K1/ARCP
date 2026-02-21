@@ -298,7 +298,7 @@ class TestPublicDiscoveryE2E:
             "display_name": "Security Dashboard Pro",
             "additional_info": {
                 "app_name": "Security Dashboard Pro",
-                "app_version": "2.1.0",
+                "app_version": "2.1.1",
                 "contact_email": "dev@security-app.example.com",
                 "use_case": "Automated security scanning integration",
             },
@@ -395,7 +395,7 @@ class TestPublicDiscoveryE2E:
             assert field in system_info, f"Missing required field: {field}"
 
         assert system_info["service"] == "ARCP (Agent Registry & Control Protocol)"
-        assert system_info["version"] == "2.1.0"
+        assert system_info["version"] == "2.1.1"
 
         # Check API capabilities
         public_api = system_info["public_api"]

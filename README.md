@@ -113,11 +113,12 @@ async def register_with_arcp():
                 network_ports=["8080"]
             ),
             policy_tags=["utility", "demo"],
+            # ai_context='READ https://arcp.0x001.tech/docs/user-guide/ai-context/',
             agent_key="test-agent-001"
         )
         
-        print(f"✅ Agent registered: {agent.name}")
-        print(f"📊 Status: {agent.status}")
+        print(f"Agent registered: {agent.name}")
+        print(f"Status: {agent.status}")
         
     finally:
         await arcp_client.close()

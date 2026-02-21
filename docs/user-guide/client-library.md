@@ -329,7 +329,7 @@ async def tpr_registration_example():
             "platform": {
                 "os": "linux",
                 "python_version": "3.11.0",
-                "agent_version": "2.1.0"
+                "agent_version": "2.1.1"
             }
         }
     )

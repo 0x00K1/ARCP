@@ -14,6 +14,8 @@ ARCP uses NGINX as a reverse proxy to provide:
 
 ### Architecture
 
+**HTTPS mode** (`ARCP_TLS_ENABLED=true`, started with `--profile tls`):
+
 ```mermaid
 flowchart LR
     Client[Client/Agent] -->|HTTPS :443| NGINX[NGINX Container]
@@ -25,12 +27,19 @@ flowchart LR
     NGINX -->|HTTPS Response| Client
 ```
 
+**HTTP mode** (`ARCP_TLS_ENABLED=false`, NGINX not started):
+
+```mermaid
+flowchart LR
+    Client[Client/Agent] -->|HTTP :8001| ARCP[ARCP Backend]
+    ARCP -->|Response| Client
+```
+
 **Key Points:**
-- Clients connect to NGINX on ports 80 (HTTP) and 443 (HTTPS)
-- NGINX redirects all HTTP traffic to HTTPS
-- NGINX terminates SSL/TLS and forwards HTTP to ARCP backend
-- ARCP backend runs on HTTP internally (not exposed to host)
-- Client certificates are validated by NGINX and forwarded to ARCP
+- Set `ARCP_TLS_ENABLED=true` and use `--profile tls` to start NGINX with HTTPS on ports 80/443
+- Set `ARCP_TLS_ENABLED=false` to skip NGINX entirely — ARCP is directly accessible on `http://localhost:8001`
+- When NGINX is active, it terminates SSL/TLS and forwards HTTP internally to the ARCP backend
+- Client certificates are validated by NGINX and forwarded to ARCP via headers
 
 ---
 
@@ -67,26 +76,38 @@ cp /etc/letsencrypt/live/your-domain.com/privkey.pem certs/server.key
 
 ### 2. Configure Environment
 
-Edit `.env`:
+Edit `deployment/docker/.env`:
 
 ```bash
-# Backend should NOT handle TLS (NGINX does this)
-ARCP_TLS_ENABLED=false
+# Set true to enable HTTPS via NGINX, false for HTTP-only (no NGINX)
+ARCP_TLS_ENABLED=true
+
+# COMPOSE_PROFILES controls which Docker Compose profiles are activated.
+# It is read automatically by docker compose — no --profile flag needed.
+# Must match ARCP_TLS_ENABLED:
+#   ARCP_TLS_ENABLED=true  -> COMPOSE_PROFILES=tls
+#   ARCP_TLS_ENABLED=false -> COMPOSE_PROFILES=
+COMPOSE_PROFILES=tls
 
 # Certificate files (mounted to NGINX container)
 ARCP_TLS_CERT_FILENAME=server.crt
 ARCP_TLS_KEY_FILENAME=server.key
 
 # Trust NGINX as reverse proxy
-TRUSTED_HOSTS=localhost,127.0.0.1,nginx,arcp
+TRUSTED_HOSTS=localhost,127.0.0.1,nginx,arcp,redis,prometheus,grafana,jaeger,172.20.0.0/16
 ```
 
 ### 3. Start Services
 
+Always use the same command — `COMPOSE_PROFILES` in `.env` handles everything:
+
 ```bash
 cd deployment/docker
-docker compose up -d
+docker compose up -d --build
 ```
+
+- `COMPOSE_PROFILES=tls` → NGINX starts, HTTPS on 443
+- `COMPOSE_PROFILES=` (empty) → NGINX skipped, HTTP only on 8001
 
 ### 4. Verify NGINX
 
@@ -128,11 +149,15 @@ project_root/
 
 ### NGINX Container (docker-compose.yml)
 
+The `nginx` service is gated behind the `tls` profile. `COMPOSE_PROFILES` in your `.env` activates it automatically — no `--profile` flag needed on the command line:
+
 ```yaml
 nginx:
   image: nginx:alpine
   container_name: arcp-nginx
   restart: unless-stopped
+  profiles:
+    - tls          # activated when COMPOSE_PROFILES=tls in .env
   ports:
     - "80:80"    # HTTP (redirects to HTTPS)
     - "443:443"  # HTTPS
@@ -146,6 +171,8 @@ nginx:
   networks:
     - arcp_network
 ```
+
+> **Tip:** Set `COMPOSE_PROFILES=tls` (and `ARCP_TLS_ENABLED=true`) in `.env` to enable NGINX, or `COMPOSE_PROFILES=` (empty, and `ARCP_TLS_ENABLED=false`) to disable it. Always run `docker compose up -d --build` — the `.env` file controls everything.
 
 ### Key Features (nginx.conf)
 

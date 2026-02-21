@@ -733,7 +733,7 @@ class EndpointValidator:
             logger.error(f"Error loading dynamic endpoints: {e}")
             return STATIC_ENDPOINTS
 
-    def _load_contracts_file(self, file_path: Path) -> Optional[Dict[str, Any]]:
+    def _load_contracts_file(self, file_path: Path) -> Optional[Any]:
         """
         Load endpoint contracts from a YAML file.
 
@@ -741,7 +741,7 @@ class EndpointValidator:
             file_path: Path to the contracts file (.yaml or .yml)
 
         Returns:
-            Parsed file content as dict, or None if loading fails
+            Parsed file content (dict or list), or None if loading fails
         """
         suffix = file_path.suffix.lower()
 
@@ -763,7 +763,7 @@ class EndpointValidator:
             return None
 
     def _parse_contracts_file(
-        self, content: Dict[str, Any], file_path: str
+        self, content: Any, file_path: str
     ) -> List[DynamicEndpointSchema]:
         """
         Parse and validate endpoint contracts file content.
@@ -775,17 +775,41 @@ class EndpointValidator:
         Returns:
             List of validated endpoint definitions
         """
-        # Validate version
-        version = content.get("version")
-        if version != "1.0":
+        endpoints_data: List[Any] = []
+
+        # Supported formats:
+        # 1) Legacy list format (top-level list of endpoint objects)
+        # 2) Versioned object format: {"version": "1.0", "endpoints": [...]}
+        if isinstance(content, list):
+            endpoints_data = content
+            logger.info(
+                f"Contracts file {file_path} uses list format; "
+                f"loaded {len(endpoints_data)} endpoint entries"
+            )
+        elif isinstance(content, dict):
+            version = content.get("version")
+            if version not in (None, "1.0"):
+                logger.error(
+                    f"Unsupported contracts file version: {version}. "
+                    f"Expected '1.0'. File: {file_path}"
+                )
+                return []
+
+            endpoints_raw = content.get("endpoints")
+            if isinstance(endpoints_raw, list):
+                endpoints_data = endpoints_raw
+            elif endpoints_raw is None and {"path", "method"}.issubset(content.keys()):
+                endpoints_data = [content]
+            else:
+                logger.error(f"No endpoints defined in contracts file: {file_path}")
+                return []
+        else:
             logger.error(
-                f"Unsupported contracts file version: {version}. "
-                f"Expected '1.0'. File: {file_path}"
+                f"Invalid contracts structure in {file_path}: expected list or dict, "
+                f"got {type(content).__name__}"
             )
             return []
 
-        # Get endpoints
-        endpoints_data = content.get("endpoints", [])
         if not endpoints_data:
             logger.error(f"No endpoints defined in contracts file: {file_path}")
             return []
@@ -794,6 +818,13 @@ class EndpointValidator:
         endpoints = []
         for i, ep_data in enumerate(endpoints_data):
             try:
+                if not isinstance(ep_data, dict):
+                    logger.error(
+                        f"Invalid endpoint definition #{i+1} in {file_path}: "
+                        f"expected object, got {type(ep_data).__name__}"
+                    )
+                    continue
+
                 # Convert field_validations from YAML format if needed
                 if "field_validations" in ep_data:
                     ep_data["field_validations"] = self._normalize_field_validations(
@@ -851,6 +882,8 @@ class EndpointValidator:
             url_path = url_path.replace("{agent_id}", self.agent_id)
         if "{user_id}" in url_path:
             url_path = url_path.replace("{user_id}", "validation-test-user")
+        # Replace any remaining path params (e.g., {task_id}) with a safe value.
+        url_path = re.sub(r"\{[^}/]+\}", "validation-test-id", url_path)
 
         url = f"{self.agent_endpoint}{url_path}"
 

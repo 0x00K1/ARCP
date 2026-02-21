@@ -4,7 +4,7 @@ A sophisticated agent orchestration protocol that provides centralized
 service discovery, registration, communication, and control for distributed agent systems.
 """
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 __author__ = "Muhannad"
 __email__ = "01muhannad.a@gmail.com"
 __license__ = "Apache-2.0"

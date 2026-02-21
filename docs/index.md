@@ -148,6 +148,7 @@ async def main():
         },
         version="1.0.0",
         communication_mode="remote",
+        # ai_context='READ https://arcp.0x001.tech/docs/user-guide/ai-context/',
         agent_key="test-agent-001",
     )
     
