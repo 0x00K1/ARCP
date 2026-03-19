@@ -4,6 +4,7 @@ Unit tests for KeyManager (JWKS).
 Tests cryptographic key generation, rotation, and JWK operations.
 """
 
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -381,6 +382,47 @@ class TestKeyManager:
         all_keys = await key_manager.get_all_valid_keys()
 
         assert len(all_keys) >= 1
+
+    @pytest.mark.asyncio
+    async def test_get_all_valid_keys_includes_memory_when_redis_empty(
+        self, key_manager
+    ):
+        """Memory keys must still be returned if Redis exists but has no JWKS entries."""
+
+        class _EmptyRedis:
+            def hgetall(self, *_args, **_kwargs):
+                return {}
+
+            def hkeys(self, *_args, **_kwargs):
+                return []
+
+        await key_manager.rotate_keys()
+        active_kid = key_manager._active_kid
+        assert active_kid is not None
+
+        # Simulate a state where Redis is reachable but does not contain keys.
+        key_manager._redis = _EmptyRedis()
+
+        all_keys = await key_manager.get_all_valid_keys()
+
+        assert any(k.kid == active_kid for k in all_keys)
+
+    @pytest.mark.asyncio
+    async def test_get_active_key_rotates_if_expired(self, key_manager):
+        """Expired active signing keys must be rotated before use."""
+        old_kid = await key_manager.rotate_keys()
+        assert old_kid is not None
+
+        # Force the current active key to be expired in in-memory storage.
+        key_manager._keys[old_kid]["expires_at"] = (
+            datetime.utcnow() - timedelta(minutes=1)
+        ).isoformat()
+
+        active_key = await key_manager.get_active_key()
+
+        assert active_key is not None
+        assert active_key.kid != old_kid
+        assert key_manager._active_kid == active_key.kid
 
     @pytest.mark.asyncio
     async def test_get_jwks(self, key_manager):

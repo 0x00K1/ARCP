@@ -265,7 +265,7 @@ class KeyManager:
                 return
             self._initialized = True
 
-        # Check for existing active key (outside lock to avoid deadlock)
+        # Check for existing non-expired active key (outside lock to avoid deadlock)
         active_key = await self.get_active_key()
 
         if active_key is None:
@@ -366,6 +366,10 @@ class KeyManager:
 
     async def _store_key(self, kid: str, key_data: Dict[str, Any]) -> None:
         """Store key in Redis or memory."""
+        # Always mirror in memory so verification/JWKS can still function if Redis
+        # is temporarily unavailable or out-of-sync.
+        self._keys[kid] = key_data
+
         redis = self._get_redis()
 
         if redis:
@@ -376,9 +380,6 @@ class KeyManager:
                 return
             except Exception as e:
                 logger.warning(f"Redis store failed, using memory: {e}")
-
-        # Fallback to memory
-        self._keys[kid] = key_data
 
     async def _get_key_data(self, kid: str) -> Optional[Dict[str, Any]]:
         """Get key data from Redis or memory."""
@@ -439,6 +440,25 @@ class KeyManager:
         if not key_data:
             return None
 
+        # Never sign with an expired key. If active key is stale, rotate now.
+        try:
+            expires_at = datetime.fromisoformat(key_data["expires_at"])
+            if expires_at <= datetime.utcnow():
+                logger.warning(
+                    "Active JWKS key %s is expired; rotating before signing", kid
+                )
+                await self._audit_key_event("expired", kid)
+                await self.rotate_keys()
+                # Re-resolve active key after rotation.
+                kid = await self._get_active_kid()
+                if not kid:
+                    return None
+                key_data = await self._get_key_data(kid)
+                if not key_data:
+                    return None
+        except Exception as e:
+            logger.warning(f"Failed active key expiry check for kid={kid}: {e}")
+
         return JWKWrapper.from_storage_dict(key_data["key"])
 
     async def get_key_by_kid(self, kid: str) -> Optional[JWKWrapper]:
@@ -465,6 +485,7 @@ class KeyManager:
         """Get all non-expired and non-revoked keys."""
         keys = []
         now = datetime.utcnow()
+        seen_kids = set()
 
         # Get set of revoked kids for efficient lookup
         revoked_kids = await self._get_revoked_kids()
@@ -489,14 +510,19 @@ class KeyManager:
                     expires_at = datetime.fromisoformat(key_data["expires_at"])
                     if expires_at > now:
                         keys.append(JWKWrapper.from_storage_dict(key_data["key"]))
-                return keys
+                        seen_kids.add(kid_str)
             except Exception as e:
                 logger.warning(f"Redis getall failed, using memory: {e}")
 
-        # Fallback to memory
+        # Merge memory-backed keys as well. This protects verification when a key
+        # was generated while Redis was unavailable.
         for kid, key_data in self._keys.items():
             # Skip revoked keys
             if kid in revoked_kids:
+                continue
+
+            # Avoid duplicates if key was already loaded from Redis
+            if kid in seen_kids:
                 continue
 
             expires_at = datetime.fromisoformat(key_data["expires_at"])
