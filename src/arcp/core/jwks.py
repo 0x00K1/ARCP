@@ -217,7 +217,7 @@ class JWKSService:
             "three_phase_registration_enabled": getattr(
                 config, "FEATURE_THREE_PHASE", False
             ),
-            "service_version": getattr(config, "SERVICE_VERSION", "2.1.1"),
+            "service_version": getattr(config, "SERVICE_VERSION", "2.1.2"),
         }
 
     async def get_active_kid(self) -> Optional[str]:

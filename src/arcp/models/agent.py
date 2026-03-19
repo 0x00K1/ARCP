@@ -1124,7 +1124,7 @@ class AgentInstance(BaseModel):
                 "node_id": "k8s-node-01",
                 "started_at": "2026-01-27T09:00:00Z",
                 "last_seen": "2026-01-27T10:30:15Z",
-                "version": "2.1.1",
+                "version": "2.1.2",
                 "status": "healthy",
             }
         }

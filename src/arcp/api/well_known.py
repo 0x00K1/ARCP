@@ -125,7 +125,7 @@ async def get_arcp_configuration(request: Request) -> Dict[str, Any]:
             "id_token_signing_alg_values_supported": ["EdDSA", "HS256"],
             "dpop_signing_alg_values_supported": ["EdDSA", "ES256"],
             "three_phase_registration_enabled": true,
-            "service_version": "2.1.1"
+            "service_version": "2.1.2"
         }
     """
     service = get_jwks_service()

@@ -39,7 +39,7 @@ class TestJWKSService:
             mock_config.JWKS_ALGORITHM = "EdDSA"
             mock_config.ARCP_ISSUER = "https://arcp.example.com"
             mock_config.FEATURE_THREE_PHASE = True
-            mock_config.SERVICE_VERSION = "2.1.1"
+            mock_config.SERVICE_VERSION = "2.1.2"
 
             service = JWKSService(key_manager=mock_key_manager)
             yield service
@@ -196,7 +196,7 @@ class TestJWKSService:
             mock_config.JWKS_ENABLED = True
             mock_config.JWKS_ALGORITHM = "EdDSA"
             mock_config.FEATURE_THREE_PHASE = True
-            mock_config.SERVICE_VERSION = "2.1.1"
+            mock_config.SERVICE_VERSION = "2.1.2"
 
             config_doc = jwks_service.get_arcp_configuration()
 

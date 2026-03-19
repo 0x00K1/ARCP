@@ -852,7 +852,7 @@ async def get_public_system_info(_: dict = RequirePublic):
     try:
         return {
             "service": "ARCP (Agent Registry & Control Protocol)",
-            "version": "2.1.1",
+            "version": "2.1.2",
             "public_api": {
                 "available": True,
                 "endpoints": {
